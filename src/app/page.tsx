@@ -129,18 +129,20 @@ export default function HomePage() {
         </div>
 
         {/* Upload Section */}
-        <div className="bg-white rounded-2xl shadow-2xl border-2 border-gray-300 p-12 mb-12">
-          <div className="text-center mb-10">
-            <h2 className="text-4xl font-bold text-gray-900 mb-4">Start Scanning</h2>
-            <p className="text-gray-700 text-xl">Upload a PDF file to begin the analysis</p>
-          </div>
-          
-        <button className="w-full flex justify-center bg-amber-300">
-           <div className="max-w-2xl mx-auto">
-            
-            <UploadForm onUpload={handleUpload} />
-          </div></button> 
-        </div>
+      {/* Upload Section */}
+<div className="bg-white rounded-2xl shadow-2xl border-2 border-gray-300 p-12 mb-12">
+  <div className="text-center mb-10">
+    <h2 className="text-4xl font-bold text-gray-900 mb-4">Start Scanning</h2>
+    <p className="text-gray-700 text-xl">Upload a PDF file to begin the analysis</p>
+  </div>
+  
+  {/* ✅ REPLACED BUTTON WITH DIV */}
+  <div className="w-full flex justify-center">
+    <div className="max-w-2xl mx-auto">
+      <UploadForm onUpload={handleUpload} />
+    </div>
+  </div>
+</div>
 
         {/* Loading State */}
         {loading && (

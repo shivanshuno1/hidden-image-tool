@@ -13,17 +13,14 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, "pdf_uploads")
 EXTRACT_FOLDER = os.path.join(BASE_DIR, "extracted_images")
 REPORT_FILE = os.path.join(BASE_DIR, "report.json")
 
-# Use your actual Render URL
+# ✅ FIX: Use your actual Render URL
 BACKEND_URL = "https://hidden-backend-1.onrender.com"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXTRACT_FOLDER, exist_ok=True)
 
-print(f"BASE_DIR: {BASE_DIR}")
-print(f"UPLOAD_FOLDER: {UPLOAD_FOLDER}")
-print(f"EXTRACT_FOLDER: {EXTRACT_FOLDER}")
-print(f"EXTRACT_FOLDER exists: {os.path.exists(EXTRACT_FOLDER)}")
-print(f"EXTRACT_FOLDER contents: {os.listdir(EXTRACT_FOLDER) if os.path.exists(EXTRACT_FOLDER) else 'Folder does not exist'}")
+print(f"Backend URL: {BACKEND_URL}")
+print(f"Upload folder: {UPLOAD_FOLDER}")
 
 def count_links_in_pdf(pdf_path):
     """Count total links in PDF"""
@@ -47,22 +44,10 @@ def count_links_in_pdf(pdf_path):
 def serve_image(filename):
     """Serve extracted images"""
     try:
-        print(f"Attempting to serve image: {filename}")
-        print(f"Looking in EXTRACT_FOLDER: {EXTRACT_FOLDER}")
-        print(f"Files in EXTRACT_FOLDER: {os.listdir(EXTRACT_FOLDER)}")
-        
-        if not os.path.exists(EXTRACT_FOLDER):
-            print("EXTRACT_FOLDER does not exist!")
-            return jsonify({"error": "Image folder not found"}), 404
-            
-        if filename not in os.listdir(EXTRACT_FOLDER):
-            print(f"File {filename} not found in EXTRACT_FOLDER")
-            return jsonify({"error": f"Image {filename} not found"}), 404
-            
         return send_from_directory(EXTRACT_FOLDER, filename)
     except Exception as e:
         print(f"Error serving image {filename}: {e}")
-        return jsonify({"error": f"Image not found: {str(e)}"}), 404
+        return jsonify({"error": "Image not found"}), 404
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -79,16 +64,13 @@ def upload_file():
 
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
-    print(f"Saved uploaded file to: {filepath}")
 
     # Clear previous extracted images
-    print("Clearing previous extracted images...")
     for f in os.listdir(EXTRACT_FOLDER):
         try:
             os.remove(os.path.join(EXTRACT_FOLDER, f))
-            print(f"Removed old file: {f}")
-        except Exception as e:
-            print(f"Error removing old file {f}: {e}")
+        except:
+            pass
 
     pdf = fitz.open(filepath)
     report = []
@@ -123,14 +105,6 @@ def upload_file():
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
 
-                # Verify the file was saved
-                if os.path.exists(img_path):
-                    file_size = os.path.getsize(img_path)
-                    print(f"Successfully saved {filename} ({file_size} bytes)")
-                else:
-                    print(f"ERROR: File was not saved: {img_path}")
-                    continue
-
                 # DECISION LOGIC FOR CLICKABLE DETECTION
                 clickable_link_found = False
                 
@@ -153,12 +127,12 @@ def upload_file():
                     if img_index < len(images) - 1:
                         clickable_link_found = True
 
-                # Use absolute URL for the image
+                # ✅ FIX: Use the actual Render URL, not localhost
                 image_url = f"{BACKEND_URL}/images/{filename}"
                 
                 page_info["images"].append({
                     "filename": filename,
-                    "url": image_url,
+                    "url": image_url,  # ✅ This now points to your Render deployment
                     "clickable_link_found": clickable_link_found
                 })
                 
@@ -182,7 +156,6 @@ def upload_file():
     print(f"Total images: {total_images}")
     print(f"Clickable images detected: {clickable_count}")
     print(f"Total links in PDF: {total_links}")
-    print(f"Files in EXTRACT_FOLDER: {os.listdir(EXTRACT_FOLDER)}")
 
     with open(REPORT_FILE, "w") as f:
         json.dump(report, f, indent=4)
@@ -195,22 +168,22 @@ def download_report():
 
 @app.route("/")
 def home():
-    return "Flask server is running!"
+    return jsonify({
+        "message": "PDF Image Scanner Backend",
+        "status": "running", 
+        "backend_url": BACKEND_URL,
+        "version": "render-fixed"
+    })
 
-@app.route("/debug/images")
-def debug_images():
-    """Debug endpoint to check available images"""
-    try:
-        images = os.listdir(EXTRACT_FOLDER)
-        return jsonify({
-            "extract_folder": EXTRACT_FOLDER,
-            "folder_exists": os.path.exists(EXTRACT_FOLDER),
-            "images": images,
-            "count": len(images)
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
+        "backend_url": BACKEND_URL,
+        "images_endpoint": f"{BACKEND_URL}/images/{{filename}}"
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    print(f"Starting server on port {port} with backend URL: {BACKEND_URL}")
+    app.run(host="0.0.0.0", port=port, debug=False)

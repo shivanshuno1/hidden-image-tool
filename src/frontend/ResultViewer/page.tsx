@@ -7,6 +7,7 @@ type ImageInfo = {
   filename: string;
   url: string;
   clickable_link_found: boolean;
+  size?: number;
 };
 
 type PageInfo = {
@@ -30,24 +31,6 @@ export default function ResultViewer({ result }: ResultViewerProps) {
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
-  };
-
-  // Function to get the correct image URL
-  const getImageUrl = (imageUrl: string) => {
-    // If it's already an absolute URL, use it as is
-    if (imageUrl.startsWith('http')) {
-      return imageUrl;
-    }
-    // If it's a relative URL, construct the absolute URL
-    // Use your actual Render backend URL
-    const backendBaseUrl = 'https://hidden-backend-1.onrender.com';
-    
-    // Handle both relative paths (with and without leading slash)
-    if (imageUrl.startsWith('/')) {
-      return `${backendBaseUrl}${imageUrl}`;
-    } else {
-      return `${backendBaseUrl}/${imageUrl}`;
-    }
   };
 
   const handleImageLoad = (imageUrl: string) => {
@@ -117,15 +100,6 @@ export default function ResultViewer({ result }: ResultViewerProps) {
         </div>
       </div>
 
-      {/* Debug Info - You can remove this in production */}
-      <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
-        <p className="text-sm text-gray-700">
-          <strong>Backend URL:</strong> https://hidden-backend-1.onrender.com<br />
-          <strong>Total images to display:</strong> {totalClickableImages}<br />
-          <strong>Image URLs in result:</strong> {result.flatMap(page => page.images).map(img => img.url).join(', ')}
-        </p>
-      </div>
-
       {/* Main Results Section */}
       {totalClickableImages === 0 ? (
         <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-8 text-center">
@@ -171,25 +145,24 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {page.images.map((image, imageIndex) => {
-                      const imageUrl = getImageUrl(image.url);
-                      const isFailed = failedImages.has(imageUrl);
+                      const isFailed = failedImages.has(image.url);
                       
                       return (
                         <div key={imageIndex} className="border-2 border-red-300 rounded-xl p-4 bg-white shadow-sm">
                           <div className="mb-4 bg-gray-100 rounded-lg p-2 min-h-[12rem] flex items-center justify-center">
                             {isFailed ? (
                               <div className="text-center text-gray-500">
-                                <div className="text-4xl mb-2">📷</div>
-                                <p className="text-sm">Image not available</p>
-                                <p className="text-xs mt-1 text-gray-400">URL: {imageUrl}</p>
+                                <div className="text-4xl mb-2">❌</div>
+                                <p className="text-sm">Failed to load image</p>
                               </div>
                             ) : (
+                              // Using regular img tag instead of Next.js Image
                               <img 
-                                src={imageUrl}
+                                src={image.url}
                                 alt={image.filename}
                                 className="w-full h-48 object-contain mx-auto"
-                                onLoad={() => handleImageLoad(imageUrl)}
-                                onError={() => handleImageError(imageUrl)}
+                                onLoad={() => handleImageLoad(image.url)}
+                                onError={() => handleImageError(image.url)}
                               />
                             )}
                           </div>
@@ -206,9 +179,9 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                                 ⚠️ YES
                               </span>
                             </div>
-                            {isFailed && (
-                              <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded mt-2">
-                                Could not load image. Check if backend is running at: https://hidden-backend-1.onrender.com
+                            {image.size && (
+                              <div className="text-xs text-gray-500">
+                                Size: {(image.size / 1024).toFixed(1)} KB
                               </div>
                             )}
                           </div>
@@ -222,21 +195,6 @@ export default function ResultViewer({ result }: ResultViewerProps) {
           </div>
         </>
       )}
-
-      {/* Detailed Log Section */}
-      <div className="bg-gray-50 border-2 border-gray-200 rounded-2xl p-6">
-        <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
-          📋 Detailed Analysis Log
-        </h3>
-        <p className="text-gray-600 mb-4">
-          Complete extraction data including {totalAllImages - totalClickableImages} images without clickable links
-        </p>
-        <div className="bg-gray-800 rounded-xl p-4">
-          <pre className="text-green-400 text-sm overflow-auto max-h-96 bg-gray-900 p-6 rounded-lg">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      </div>
 
       {/* Security Recommendations */}
       <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6">
