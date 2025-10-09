@@ -4,6 +4,7 @@ import os
 import json
 import fitz  # PyMuPDF for PDF image extraction
 
+
 app = Flask(__name__)
 CORS(app)
 
@@ -11,6 +12,7 @@ CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
 
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 UPLOAD_FOLDER = os.path.join(PROJECT_ROOT, "pdf_uploads")
 EXTRACT_FOLDER = os.path.join(PROJECT_ROOT, "extracted_images")
 REPORT_FILE = os.path.join(PROJECT_ROOT, "report.json")
@@ -116,7 +118,7 @@ def upload_file():
 
                 page_info["images"].append({
                     "filename": filename,
-                    "url": f"http://localhost:8000/images/{filename}",
+                    "url": f"{BACKEND_URL}/images/{filename}",
                     "clickable_link_found": clickable_link_found
                 })
                 
