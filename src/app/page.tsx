@@ -25,7 +25,7 @@ export default function HomePage() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:8000/upload", {
+      const res = await fetch("https://hidden-backend-1.onrender.com/upload", {
         method: "POST",
         body: formData,
       });

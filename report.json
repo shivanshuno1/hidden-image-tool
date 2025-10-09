@@ -3,34 +3,164 @@
         "page": 1,
         "images": [
             {
-                "filename": "pdf_with_actual_images_page1_img0.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img0.png",
+                "filename": "test_page1_img0.png",
+                "url": "http://localhost:8000/images/test_page1_img0.png",
                 "clickable_link_found": true
             },
             {
-                "filename": "pdf_with_actual_images_page1_img1.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img1.png",
+                "filename": "test_page1_img1.png",
+                "url": "http://localhost:8000/images/test_page1_img1.png",
+                "clickable_link_found": false
+            },
+            {
+                "filename": "test_page1_img2.jpeg",
+                "url": "http://localhost:8000/images/test_page1_img2.jpeg",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 2,
+        "images": [
+            {
+                "filename": "test_page2_img0.png",
+                "url": "http://localhost:8000/images/test_page2_img0.png",
                 "clickable_link_found": true
             },
             {
-                "filename": "pdf_with_actual_images_page1_img2.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img2.png",
+                "filename": "test_page2_img1.png",
+                "url": "http://localhost:8000/images/test_page2_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 3,
+        "images": [
+            {
+                "filename": "test_page3_img0.png",
+                "url": "http://localhost:8000/images/test_page3_img0.png",
                 "clickable_link_found": true
             },
             {
-                "filename": "pdf_with_actual_images_page1_img3.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img3.png",
+                "filename": "test_page3_img1.png",
+                "url": "http://localhost:8000/images/test_page3_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 4,
+        "images": [
+            {
+                "filename": "test_page4_img0.png",
+                "url": "http://localhost:8000/images/test_page4_img0.png",
                 "clickable_link_found": true
             },
             {
-                "filename": "pdf_with_actual_images_page1_img4.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img4.png",
+                "filename": "test_page4_img1.jpeg",
+                "url": "http://localhost:8000/images/test_page4_img1.jpeg",
+                "clickable_link_found": false
+            },
+            {
+                "filename": "test_page4_img2.png",
+                "url": "http://localhost:8000/images/test_page4_img2.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 5,
+        "images": [
+            {
+                "filename": "test_page5_img0.png",
+                "url": "http://localhost:8000/images/test_page5_img0.png",
                 "clickable_link_found": true
             },
             {
-                "filename": "pdf_with_actual_images_page1_img5.png",
-                "url": "http://localhost:8000/images/pdf_with_actual_images_page1_img5.png",
+                "filename": "test_page5_img1.png",
+                "url": "http://localhost:8000/images/test_page5_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 6,
+        "images": [
+            {
+                "filename": "test_page6_img0.png",
+                "url": "http://localhost:8000/images/test_page6_img0.png",
                 "clickable_link_found": true
+            },
+            {
+                "filename": "test_page6_img1.png",
+                "url": "http://localhost:8000/images/test_page6_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 7,
+        "images": [
+            {
+                "filename": "test_page7_img0.png",
+                "url": "http://localhost:8000/images/test_page7_img0.png",
+                "clickable_link_found": true
+            },
+            {
+                "filename": "test_page7_img1.jpeg",
+                "url": "http://localhost:8000/images/test_page7_img1.jpeg",
+                "clickable_link_found": false
+            },
+            {
+                "filename": "test_page7_img2.png",
+                "url": "http://localhost:8000/images/test_page7_img2.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 8,
+        "images": [
+            {
+                "filename": "test_page8_img0.png",
+                "url": "http://localhost:8000/images/test_page8_img0.png",
+                "clickable_link_found": true
+            },
+            {
+                "filename": "test_page8_img1.png",
+                "url": "http://localhost:8000/images/test_page8_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 9,
+        "images": [
+            {
+                "filename": "test_page9_img0.png",
+                "url": "http://localhost:8000/images/test_page9_img0.png",
+                "clickable_link_found": true
+            },
+            {
+                "filename": "test_page9_img1.png",
+                "url": "http://localhost:8000/images/test_page9_img1.png",
+                "clickable_link_found": false
+            }
+        ]
+    },
+    {
+        "page": 10,
+        "images": [
+            {
+                "filename": "test_page10_img0.png",
+                "url": "http://localhost:8000/images/test_page10_img0.png",
+                "clickable_link_found": true
+            },
+            {
+                "filename": "test_page10_img1.png",
+                "url": "http://localhost:8000/images/test_page10_img1.png",
+                "clickable_link_found": false
             }
         ]
     }
