@@ -19,6 +19,9 @@ type ResultViewerProps = {
 };
 
 export default function ResultViewer({ result }: ResultViewerProps) {
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+
   const downloadReport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
     const downloadAnchorNode = document.createElement('a');
@@ -27,6 +30,43 @@ export default function ResultViewer({ result }: ResultViewerProps) {
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
+  };
+
+  // Function to get the correct image URL
+  const getImageUrl = (imageUrl: string) => {
+    // If it's already an absolute URL, use it as is
+    if (imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    // If it's a relative URL, construct the absolute URL
+    // Use your actual Render backend URL
+    const backendBaseUrl = 'https://hidden-backend-1.onrender.com';
+    
+    // Handle both relative paths (with and without leading slash)
+    if (imageUrl.startsWith('/')) {
+      return `${backendBaseUrl}${imageUrl}`;
+    } else {
+      return `${backendBaseUrl}/${imageUrl}`;
+    }
+  };
+
+  const handleImageLoad = (imageUrl: string) => {
+    setLoadedImages(prev => new Set(prev).add(imageUrl));
+    setFailedImages(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(imageUrl);
+      return newSet;
+    });
+  };
+
+  const handleImageError = (imageUrl: string) => {
+    console.error('Failed to load image:', imageUrl);
+    setFailedImages(prev => new Set(prev).add(imageUrl));
+    setLoadedImages(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(imageUrl);
+      return newSet;
+    });
   };
 
   // Filter images to only show those with clickable_link_found = true
@@ -77,6 +117,15 @@ export default function ResultViewer({ result }: ResultViewerProps) {
         </div>
       </div>
 
+      {/* Debug Info - You can remove this in production */}
+      <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
+        <p className="text-sm text-gray-700">
+          <strong>Backend URL:</strong> https://hidden-backend-1.onrender.com<br />
+          <strong>Total images to display:</strong> {totalClickableImages}<br />
+          <strong>Image URLs in result:</strong> {result.flatMap(page => page.images).map(img => img.url).join(', ')}
+        </p>
+      </div>
+
       {/* Main Results Section */}
       {totalClickableImages === 0 ? (
         <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-8 text-center">
@@ -121,34 +170,51 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                     Page {page.page} - {page.images.length} clickable image(s)
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {page.images.map((image, imageIndex) => (
-                      <div key={imageIndex} className="border-2 border-red-300 rounded-xl p-4 bg-white shadow-sm">
-                        <div className="mb-4 bg-gray-100 rounded-lg p-2">
-                          <img 
-                            src={image.url} 
-                            alt={image.filename}
-                            className="w-full h-48 object-contain mx-auto"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2YzZjRmNiIvPjx0ZXh0IHg9IjEwMCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTk5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIwLjM1ZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                            }}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-start">
-                            <span className="text-sm font-medium text-gray-700">Filename:</span>
-                            <span className="text-sm text-gray-900 font-mono bg-gray-100 px-2 py-1 rounded">
-                              {image.filename}
-                            </span>
+                    {page.images.map((image, imageIndex) => {
+                      const imageUrl = getImageUrl(image.url);
+                      const isFailed = failedImages.has(imageUrl);
+                      
+                      return (
+                        <div key={imageIndex} className="border-2 border-red-300 rounded-xl p-4 bg-white shadow-sm">
+                          <div className="mb-4 bg-gray-100 rounded-lg p-2 min-h-[12rem] flex items-center justify-center">
+                            {isFailed ? (
+                              <div className="text-center text-gray-500">
+                                <div className="text-4xl mb-2">📷</div>
+                                <p className="text-sm">Image not available</p>
+                                <p className="text-xs mt-1 text-gray-400">URL: {imageUrl}</p>
+                              </div>
+                            ) : (
+                              <img 
+                                src={imageUrl}
+                                alt={image.filename}
+                                className="w-full h-48 object-contain mx-auto"
+                                onLoad={() => handleImageLoad(imageUrl)}
+                                onError={() => handleImageError(imageUrl)}
+                              />
+                            )}
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-gray-700">Clickable Link:</span>
-                            <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center">
-                              ⚠️ YES
-                            </span>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-start">
+                              <span className="text-sm font-medium text-gray-700">Filename:</span>
+                              <span className="text-sm text-gray-900 font-mono bg-gray-100 px-2 py-1 rounded break-all">
+                                {image.filename}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-gray-700">Clickable Link:</span>
+                              <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center">
+                                ⚠️ YES
+                              </span>
+                            </div>
+                            {isFailed && (
+                              <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded mt-2">
+                                Could not load image. Check if backend is running at: https://hidden-backend-1.onrender.com
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )

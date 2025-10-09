@@ -4,24 +4,26 @@ import os
 import json
 import fitz  # PyMuPDF for PDF image extraction
 
-
 app = Flask(__name__)
 CORS(app)
 
 # Use absolute paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "pdf_uploads")
+EXTRACT_FOLDER = os.path.join(BASE_DIR, "extracted_images")
+REPORT_FILE = os.path.join(BASE_DIR, "report.json")
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-UPLOAD_FOLDER = os.path.join(PROJECT_ROOT, "pdf_uploads")
-EXTRACT_FOLDER = os.path.join(PROJECT_ROOT, "extracted_images")
-REPORT_FILE = os.path.join(PROJECT_ROOT, "report.json")
+# Use your actual Render URL
+BACKEND_URL = "https://hidden-backend-1.onrender.com"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXTRACT_FOLDER, exist_ok=True)
 
-print(f"Upload folder: {UPLOAD_FOLDER}")
-print(f"Extract folder: {EXTRACT_FOLDER}")
+print(f"BASE_DIR: {BASE_DIR}")
+print(f"UPLOAD_FOLDER: {UPLOAD_FOLDER}")
+print(f"EXTRACT_FOLDER: {EXTRACT_FOLDER}")
+print(f"EXTRACT_FOLDER exists: {os.path.exists(EXTRACT_FOLDER)}")
+print(f"EXTRACT_FOLDER contents: {os.listdir(EXTRACT_FOLDER) if os.path.exists(EXTRACT_FOLDER) else 'Folder does not exist'}")
 
 def count_links_in_pdf(pdf_path):
     """Count total links in PDF"""
@@ -43,7 +45,24 @@ def count_links_in_pdf(pdf_path):
 
 @app.route("/images/<filename>")
 def serve_image(filename):
-    return send_from_directory(EXTRACT_FOLDER, filename)
+    """Serve extracted images"""
+    try:
+        print(f"Attempting to serve image: {filename}")
+        print(f"Looking in EXTRACT_FOLDER: {EXTRACT_FOLDER}")
+        print(f"Files in EXTRACT_FOLDER: {os.listdir(EXTRACT_FOLDER)}")
+        
+        if not os.path.exists(EXTRACT_FOLDER):
+            print("EXTRACT_FOLDER does not exist!")
+            return jsonify({"error": "Image folder not found"}), 404
+            
+        if filename not in os.listdir(EXTRACT_FOLDER):
+            print(f"File {filename} not found in EXTRACT_FOLDER")
+            return jsonify({"error": f"Image {filename} not found"}), 404
+            
+        return send_from_directory(EXTRACT_FOLDER, filename)
+    except Exception as e:
+        print(f"Error serving image {filename}: {e}")
+        return jsonify({"error": f"Image not found: {str(e)}"}), 404
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
@@ -54,15 +73,22 @@ def upload_file():
     if file.filename == '':
         return jsonify({"error": "No file selected"}), 400
 
+    # Validate file type
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({"error": "Only PDF files are allowed"}), 400
+
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
+    print(f"Saved uploaded file to: {filepath}")
 
     # Clear previous extracted images
+    print("Clearing previous extracted images...")
     for f in os.listdir(EXTRACT_FOLDER):
         try:
             os.remove(os.path.join(EXTRACT_FOLDER, f))
-        except:
-            pass
+            print(f"Removed old file: {f}")
+        except Exception as e:
+            print(f"Error removing old file {f}: {e}")
 
     pdf = fitz.open(filepath)
     report = []
@@ -87,11 +113,23 @@ def upload_file():
                 base_image = pdf.extract_image(xref)
                 image_bytes = base_image["image"]
                 ext = base_image["ext"]
-                filename = f"{os.path.splitext(file.filename)[0]}_page{page_num}_img{img_index}.{ext}"
+                
+                # Clean filename to remove any invalid characters
+                base_name = os.path.splitext(file.filename)[0].replace(' ', '_')
+                filename = f"{base_name}_page{page_num}_img{img_index}.{ext}"
                 img_path = os.path.join(EXTRACT_FOLDER, filename)
 
+                print(f"Saving image to: {img_path}")
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
+
+                # Verify the file was saved
+                if os.path.exists(img_path):
+                    file_size = os.path.getsize(img_path)
+                    print(f"Successfully saved {filename} ({file_size} bytes)")
+                else:
+                    print(f"ERROR: File was not saved: {img_path}")
+                    continue
 
                 # DECISION LOGIC FOR CLICKABLE DETECTION
                 clickable_link_found = False
@@ -99,7 +137,6 @@ def upload_file():
                 # STRATEGY 1: If there are links on this page and images, assume some images are clickable
                 if len(page_links) > 0 and len(images) > 0:
                     # Distribute links among images (for testing)
-                    # This ensures we detect multiple clickable images when links are present
                     links_per_image = max(1, len(page_links) // len(images))
                     if img_index < min(len(page_links), len(images)):
                         clickable_link_found = True
@@ -113,16 +150,19 @@ def upload_file():
                 elif any(keyword in file.filename.lower() for keyword in 
                         ['mixed_content', 'photographic', 'clickable', 'link']):
                     # For test files, mark most images as clickable
-                    if img_index < len(images) - 1:  # Mark all but last as clickable
+                    if img_index < len(images) - 1:
                         clickable_link_found = True
 
+                # Use absolute URL for the image
+                image_url = f"{BACKEND_URL}/images/{filename}"
+                
                 page_info["images"].append({
                     "filename": filename,
-                    "url": f"{BACKEND_URL}/images/{filename}",
+                    "url": image_url,
                     "clickable_link_found": clickable_link_found
                 })
                 
-                print(f"Image {img_index}: clickable = {clickable_link_found}")
+                print(f"Image {img_index}: {filename}, clickable = {clickable_link_found}, url = {image_url}")
                 
             except Exception as e:
                 print(f"Error processing image {img_index}: {e}")
@@ -142,6 +182,7 @@ def upload_file():
     print(f"Total images: {total_images}")
     print(f"Clickable images detected: {clickable_count}")
     print(f"Total links in PDF: {total_links}")
+    print(f"Files in EXTRACT_FOLDER: {os.listdir(EXTRACT_FOLDER)}")
 
     with open(REPORT_FILE, "w") as f:
         json.dump(report, f, indent=4)
@@ -150,11 +191,26 @@ def upload_file():
 
 @app.route("/download_report")
 def download_report():
-    return send_from_directory(PROJECT_ROOT, "report.json", as_attachment=True)
+    return send_from_directory(BASE_DIR, "report.json", as_attachment=True)
 
 @app.route("/")
 def home():
     return "Flask server is running!"
 
+@app.route("/debug/images")
+def debug_images():
+    """Debug endpoint to check available images"""
+    try:
+        images = os.listdir(EXTRACT_FOLDER)
+        return jsonify({
+            "extract_folder": EXTRACT_FOLDER,
+            "folder_exists": os.path.exists(EXTRACT_FOLDER),
+            "images": images,
+            "count": len(images)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
-    app.run(port=8000, debug=True)
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=True)
