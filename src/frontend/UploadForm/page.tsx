@@ -56,7 +56,7 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {/* File upload area */}
         <div
           className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
@@ -80,12 +80,15 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
                 Choose PDF File
               </p>
               <p className="text-gray-600 mt-1">
-                Click to browse your files
+                Click to browse or drag and drop
+              </p>
+              <p className="text-gray-500 text-sm mt-2">
+                Maximum file size: 50MB
               </p>
             </div>
             {fileName && (
               <p className="text-green-600 font-medium bg-green-50 px-4 py-2 rounded-lg">
-                Selected: {fileName}
+                ✅ Selected: {fileName}
               </p>
             )}
           </div>
@@ -99,11 +102,11 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
           />
         </div>
 
-        {/* Upload button - ONLY ONE BUTTON HERE */}
+        {/* Upload button */}
         <button 
           type="submit" 
           disabled={!fileName}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-4 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 text-lg"
         >
           {fileName ? '🔍 Scan PDF for Images' : 'Select a PDF File First'}
         </button>

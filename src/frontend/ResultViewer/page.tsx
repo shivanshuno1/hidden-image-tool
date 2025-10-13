@@ -52,6 +52,11 @@ export default function ResultViewer({ result }: ResultViewerProps) {
     });
   };
 
+  // Function to open image in new tab
+  const openImageInNewTab = (url: string) => {
+    window.open(url, '_blank');
+  };
+
   // Filter images to only show those with clickable_link_found = true
   const filteredResult = result.map(page => ({
     ...page,
@@ -134,64 +139,108 @@ export default function ResultViewer({ result }: ResultViewerProps) {
               </div>
             </div>
 
-            {filteredResult.map((page, pageIndex) => (
-              page.images.length > 0 && (
-                <div key={pageIndex} className="mb-6 bg-white rounded-xl p-6 border border-red-300">
-                  <h4 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                    <span className="bg-gray-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3">
-                      {page.page}
-                    </span>
-                    Page {page.page} - {page.images.length} clickable image(s)
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {page.images.map((image, imageIndex) => {
-                      const isFailed = failedImages.has(image.url);
-                      
-                      return (
-                        <div key={imageIndex} className="border-2 border-red-300 rounded-xl p-4 bg-white shadow-sm">
-                          <div className="mb-4 bg-gray-100 rounded-lg p-2 min-h-[12rem] flex items-center justify-center">
-                            {isFailed ? (
-                              <div className="text-center text-gray-500">
-                                <div className="text-4xl mb-2">❌</div>
-                                <p className="text-sm">Failed to load image</p>
+            {/* Scrollable container for all pages */}
+            <div className="space-y-6 max-h-[800px] overflow-y-auto pr-4 custom-scrollbar">
+              {filteredResult.map((page, pageIndex) => (
+                page.images.length > 0 && (
+                  <div key={pageIndex} className="bg-white rounded-xl p-6 border border-red-300">
+                    {/* Page Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-xl font-semibold text-gray-900 flex items-center">
+                        <span className="bg-gray-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3">
+                          {page.page}
+                        </span>
+                        Page {page.page} - {page.images.length} clickable image(s)
+                      </h4>
+                      <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                        Page {page.page}
+                      </span>
+                    </div>
+                    
+                    {/* Horizontal scrollable images container */}
+                    <div className="overflow-x-auto pb-4">
+                      <div className="flex space-x-6 min-w-max">
+                        {page.images.map((image, imageIndex) => {
+                          const isFailed = failedImages.has(image.url);
+                          
+                          return (
+                            <div 
+                              key={imageIndex} 
+                              className="border-2 border-red-300 rounded-xl p-4 bg-white shadow-sm w-80 flex-shrink-0 flex flex-col"
+                            >
+                              {/* Image Container */}
+                              <div className="mb-4 bg-gray-100 rounded-lg p-2 flex items-center justify-center min-h-[200px] max-h-[200px]">
+                                {isFailed ? (
+                                  <div className="text-center text-gray-500">
+                                    <div className="text-4xl mb-2">❌</div>
+                                    <p className="text-sm">Failed to load image</p>
+                                  </div>
+                                ) : (
+                                  <div 
+                                    className="cursor-pointer w-full h-full flex items-center justify-center"
+                                    onClick={() => openImageInNewTab(image.url)}
+                                    title="Click to view full image in new tab"
+                                  >
+                                    <img 
+                                      src={image.url}
+                                      alt={image.filename}
+                                      className="max-w-full max-h-full object-contain"
+                                      onLoad={() => handleImageLoad(image.url)}
+                                      onError={() => handleImageError(image.url)}
+                                    />
+                                  </div>
+                                )}
                               </div>
-                            ) : (
-                              // Using regular img tag instead of Next.js Image
-                              <img 
-                                src={image.url}
-                                alt={image.filename}
-                                className="w-full h-48 object-contain mx-auto"
-                                onLoad={() => handleImageLoad(image.url)}
-                                onError={() => handleImageError(image.url)}
-                              />
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-start">
-                              <span className="text-sm font-medium text-gray-700">Filename:</span>
-                              <span className="text-sm text-gray-900 font-mono bg-gray-100 px-2 py-1 rounded break-all">
-                                {image.filename}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm font-medium text-gray-700">Clickable Link:</span>
-                              <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center">
-                                ⚠️ YES
-                              </span>
-                            </div>
-                            {image.size && (
-                              <div className="text-xs text-gray-500">
-                                Size: {(image.size / 1024).toFixed(1)} KB
+                              
+                              {/* Image Details */}
+                              <div className="space-y-3 mt-auto">
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 mb-1">Filename:</div>
+                                  <div className="text-sm text-gray-900 font-mono bg-gray-100 px-3 py-2 rounded break-all">
+                                    {image.filename}
+                                  </div>
+                                </div>
+                                
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sm font-medium text-gray-700">Clickable Link:</span>
+                                  <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center">
+                                    ⚠️ YES
+                                  </span>
+                                </div>
+                                
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 mb-1">Image URL:</div>
+                                  <div 
+                                    className="text-sm text-blue-600 underline cursor-pointer break-all hover:text-blue-800"
+                                    onClick={() => openImageInNewTab(image.url)}
+                                    title="Click to open image URL"
+                                  >
+                                    {image.url}
+                                  </div>
+                                </div>
+
+                                {image.size && (
+                                  <div className="text-xs text-gray-500">
+                                    Size: {(image.size / 1024).toFixed(1)} KB
+                                  </div>
+                                )}
+                                
+                                <button
+                                  onClick={() => openImageInNewTab(image.url)}
+                                  className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors mt-2 flex items-center justify-center"
+                                >
+                                  🔍 View Full Image
+                                </button>
                               </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )
-            ))}
+                )
+              ))}
+            </div>
           </div>
         </>
       )}
@@ -218,6 +267,24 @@ export default function ResultViewer({ result }: ResultViewerProps) {
           </div>
         </div>
       </div>
+
+      {/* Add custom scrollbar styles */}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #c1c1c1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #a8a8a8;
+        }
+      `}</style>
     </div>
   );
 }
