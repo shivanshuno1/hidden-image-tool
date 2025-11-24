@@ -199,7 +199,7 @@ def extract_pdf_links_for_area(page, image_area_rect):
 
     print(f"      Scanning for ALL structural PDF links/actions (RAW ANNOTATION DICT INSPECTION) over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
     
-    # Use page.annots() to get the actual Annot objects for maximum property access
+    # Iterate over ALL annotations on the page
     for annot in page.annots():
         link_rect = annot.rect
         
@@ -268,40 +268,32 @@ def extract_pdf_links_for_area(page, image_area_rect):
     # -------------------------------------------------------------
     # NEW: Raw PDF Object Search (Final Attempt to find hidden URLs)
     # -------------------------------------------------------------
-    url_pattern = r'(https?|mailto|www)\:\/\/[\S]+'
+    # This is a brute-force heuristic. It is disabled by default to prevent false positives, 
+    # but kept here as the absolute last resort search method.
     
-    doc = page.parent
-    for xref in range(1, doc.xref_length()):
-        try:
-            # Get raw stream or dictionary content
-            raw_data = doc.xref_object(xref)
-            if isinstance(raw_data, bytes):
-                raw_data = raw_data.decode('latin-1', 'ignore')
-            elif isinstance(raw_data, str):
-                raw_data = raw_data
-            else:
-                continue
+    # url_pattern = r'(https?|mailto|www)\:\/\/[\S]+'
+    
+    # doc = page.parent
+    # for xref in range(1, doc.xref_length()):
+    #     try:
+    #         # Get raw stream or dictionary content
+    #         raw_data = doc.xref_object(xref)
+    #         if isinstance(raw_data, bytes):
+    #             raw_data = raw_data.decode('latin-1', 'ignore')
+    #         elif isinstance(raw_data, str):
+    #             raw_data = raw_data
+    #         else:
+    #             continue
 
-            # Search for URL patterns in the raw content
-            found_urls = re.findall(url_pattern, raw_data, re.IGNORECASE)
+    #         # Search for URL patterns in the raw content
+    #         found_urls = re.findall(url_pattern, raw_data, re.IGNORECASE)
             
-            for url_match in found_urls:
-                # Reconstruct the full URL string from the match
-                full_url = url_match[0] + "://" + url_match[1] if url_match[0] not in ['http','https','mailto'] else url_match[0] + "://" + url_match[1]
-                
-                # Check if this URL is associated with the current page/image (this is a heuristic)
-                if page.number == doc.page_count - 1 or page.number == 0: # Only look at links in the first/last page raw objects
-                    if not any(link['content'].strip().startswith(url_match[1]) for link in links):
-                        links.append({
-                            "type": "raw_object_search",
-                            "content": full_url,
-                            "description": f"URL found in raw PDF object XREF {xref}. (Heuristic Match)",
-                            "confidence": 0.1 # Low confidence, as it's a brute force match
-                        })
-                        print(f"      ✅ Found RAW Link (Heuristic): {full_url[:50]}...")
+    #         for url_match in found_urls:
+    #             # Heuristic match logic...
+    #             pass
 
-        except Exception:
-            continue
+    #     except Exception:
+    #         continue
     # -------------------------------------------------------------
     
     return links
