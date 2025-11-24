@@ -33,7 +33,7 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    
+
     const file = event.dataTransfer.files?.[0];
     if (file && file.type === 'application/pdf') {
       setFileName(file.name);
@@ -45,24 +45,17 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    
     const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
     const file = fileInput.files?.[0];
-    
-    if (file) {
-      onUpload(file);
-    }
+    if (file) onUpload(file);
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto">
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* File upload area */}
         <div
           className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
-            isDragging 
-              ? 'border-blue-500 bg-blue-50' 
-              : 'border-gray-300 hover:border-gray-400 bg-gray-50'
+            isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400 bg-gray-50'
           }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -75,34 +68,14 @@ export default function UploadForm({ onUpload }: UploadFormProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <div>
-              <p className="text-lg font-semibold text-gray-900">
-                Choose PDF File
-              </p>
-              <p className="text-gray-600 mt-1">
-                Click to browse or drag and drop
-              </p>
-              <p className="text-gray-500 text-sm mt-2">
-                Maximum file size: 50MB
-              </p>
-            </div>
-            {fileName && (
-              <p className="text-green-600 font-medium bg-green-50 px-4 py-2 rounded-lg">
-                ✅ Selected: {fileName}
-              </p>
-            )}
+            <p className="text-lg font-semibold text-gray-900">Choose PDF File</p>
+            <p className="text-gray-600 mt-1">Click to browse or drag and drop</p>
+            <p className="text-gray-500 text-sm mt-2">Maximum file size: 50MB</p>
+            {fileName && <p className="text-green-600 font-medium bg-green-50 px-4 py-2 rounded-lg">✅ Selected: {fileName}</p>}
           </div>
-          
-          <input
-            id="pdf-upload"
-            type="file"
-            accept=".pdf"
-            onChange={handleFileChange}
-            className="hidden"
-          />
+          <input id="pdf-upload" type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
         </div>
 
-        {/* Upload button */}
         <button 
           type="submit" 
           disabled={!fileName}
