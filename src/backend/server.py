@@ -191,64 +191,64 @@ def extract_text_and_urls(img_path):
 
 # MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects ALL PDF Annotations (Link, GoTo, JavaScript, Widget Actions) that overlap with the image's area."""
+    """Detects PDF Link Annotations that overlap with the image's area using page.get_links()."""
     links = []
     
     # Create a fitz.Rect object from the image area list
     from fitz import Rect 
     image_rect = Rect(image_area_rect)
 
-    print(f"      Scanning for ALL structural PDF links/actions over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
+    print(f"      Scanning for structural PDF links using page.get_links() over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
     
-    # Iterate over all annotations on the page
-    for annot in page.annots():
-        # Check if the annotation area significantly overlaps with the image
-        link_rect = annot.rect
-        # Require 50% overlap for confidence in the association
-        if link_rect.intersects(image_rect) and link_rect.get_area() > (image_rect.get_area() * 0.5):
-            
-            content = None
-            link_type = None
-            
-            # 1. Check for standard URI Link (Type 4: Standard External Web Link)
-            if annot.type[0] == 4 and annot.uri: 
-                content = annot.uri
-                link_type = "pdf_uri_link"
-            
-            # 2. Check for JavaScript Action (Type 6: Programmatic Link/Action)
-            elif annot.type[0] == 6 and annot.script:
-                # Truncate script content for output but capture it.
-                content = f"JavaScript Action: {annot.script.strip()[:100]}..."
-                link_type = "pdf_js_action"
-            
-            # 3. Check for Launch or GoTo Action (Type 3: Internal link or launching an external program/file)
-            elif annot.type[0] == 3 and annot.dest: 
-                # annot.dest can be a simple name or a complex structure
-                content = f"Internal GoTo/File: {annot.dest}"
-                link_type = "pdf_goto_action"
-            
-            # 4. NEW: Check for Widget/Form Field Actions
-            # Widget annotations (form fields) often have the link in the .a (action) property
-            elif annot.field_name and annot.a:
-                action = annot.a
-                if action.n == "/URI" and action.uri:
-                    content = action.uri
-                    link_type = "pdf_widget_uri_action"
-                elif action.n == "/JavaScript" and action.js:
-                    content = f"Widget JS Action: {action.js.strip()[:100]}..."
-                    link_type = "pdf_widget_js_action"
-                elif action.n == "/GoTo" and action.dest:
-                    content = f"Widget GoTo: {action.dest}"
-                    link_type = "pdf_widget_goto_action"
+    # Use the highly optimized method to get all link annotations
+    pdf_annotations = page.get_links()
 
+    for link_data in pdf_annotations:
+        # link_data['rect'] is already a fitz.Rect object
+        link_rect = link_data['rect'] 
+        uri = link_data.get('uri')
+        kind = link_data.get('kind', 0)
+        
+        # We only check for intersection, removing the strict 50% overlap rule
+        if link_rect.intersects(image_rect):
+            
+            content = uri
+            link_type = None
+
+            if content:
+                 # Type 4 is fitz.LINK_URI (most common web link)
+                link_type = "pdf_uri_link" if kind == 4 else "pdf_link_annotation"
+            else:
+                # Check for internal link target/destination
+                dest = link_data.get('dest')
+                if dest:
+                    # 'dest' for a GoTo action can be a simple name or a complex structure
+                    content = f"Internal PDF Destination: {dest}"
+                    link_type = "pdf_internal_link"
+            
+            # Additional check for JavaScript/Widget Action in the underlying annotation object
+            annot = page.find_annot(link_rect)
+            if annot:
+                if annot.script:
+                    content = f"JavaScript Action: {annot.script.strip()[:100]}..."
+                    link_type = "pdf_js_action"
+                elif annot.field_name and annot.a:
+                    action = annot.a
+                    if action.n == "/URI" and action.uri:
+                        content = action.uri
+                        link_type = "pdf_widget_uri_action"
+                    # Add other widget checks if necessary, but URI is the primary goal
+                
             if content and link_type:
-                links.append({
-                    "type": link_type,
-                    "content": content,
-                    "description": f"Structural {link_type} found on PDF page",
-                    "confidence": 1.0 
-                })
-                print(f"      ✅ Found Structural Link/Action: {content[:50]}...")
+                # Skip generic internal links that just point to the current page number
+                if link_type != "pdf_internal_link" or (isinstance(link_data['dest'], list) and len(link_data['dest']) > 1):
+                    links.append({
+                        "type": link_type,
+                        "content": content,
+                        "description": f"Structural {link_type} found on PDF page",
+                        "confidence": 1.0 
+                    })
+                    print(f"      ✅ Found Structural Link: {content[:50]}...")
     
     return links
     
