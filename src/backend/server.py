@@ -191,79 +191,118 @@ def extract_text_and_urls(img_path):
 
 # FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects ALL PDF Annotations that overlap with the image's area using page.get_links()."""
+    """Detects ALL PDF Annotations that overlap with the image's area by inspecting raw action dictionaries."""
     links = []
     
     from fitz import Rect 
     image_rect = Rect(image_area_rect)
 
-    print(f"      Scanning for structural PDF links using page.get_links() over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
+    print(f"      Scanning for ALL structural PDF links/actions (RAW ANNOTATION DICT INSPECTION) over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
     
-    # Use the highly optimized method to get all link annotations
-    pdf_links = page.get_links()
-
-    for link_data in pdf_links:
-        link_rect = link_data['rect']
+    # Use page.annots() to get the actual Annot objects for maximum property access
+    for annot in page.annots():
+        link_rect = annot.rect
         
-        # We only check for intersection (most permissive bounding box match)
-        if link_rect.intersects(image_rect):
-            
-            content = None
-            link_type = None
+        # Check for intersection
+        if not link_rect.intersects(image_rect):
+            continue
+        
+        content = None
+        link_type = None
 
-            uri = link_data.get('uri')
-            dest = link_data.get('dest')
-            file = link_data.get('file') 
-            
-            if uri:
-                content = uri
+        # 1. Inspect Raw Annotation Dictionary for Action (/A) key
+        annot_info = annot.info
+        if 'A' in annot_info:
+            action_dict = annot.info['A']
+            action_type = action_dict.get('S')
+
+            if action_type == '/URI' and 'URI' in action_dict:
+                content = action_dict['URI']
+                link_type = "pdf_raw_uri_action"
+            elif action_type == '/Launch' and 'F' in action_dict:
+                content = f"File Launch: {action_dict['F']}"
+                link_type = "pdf_raw_file_launch"
+            elif action_type == '/JavaScript' and 'JS' in action_dict:
+                content = f"Raw JS Action: {action_dict['JS'].strip()[:100]}..."
+                link_type = "pdf_raw_js_action"
+            elif action_type == '/Named' and 'N' in action_dict:
+                 content = f"Named Action: {action_dict['N']}"
+                 link_type = "pdf_raw_named_action"
+        
+        # 2. Fallback: Check high-level attributes (in case the raw dictionary is formatted differently)
+        if not content:
+            if annot.uri: 
+                content = annot.uri
                 link_type = "pdf_uri_link"
-            elif file:
-                # Type 3 is LINK_LAUNCH or LINK_GOTOR (remote file)
-                content = f"PDF File Launch: {file}"
-                link_type = "pdf_file_launch_link"
-            elif dest:
-                # dest is used for internal links (GoTo)
-                # Check that it's not just a self-reference to the current page/view before logging
-                if not (isinstance(dest, list) and dest[0] == page.number and dest[1] == 'xyz'):
-                    content = f"Internal PDF Destination: {dest}"
-                    link_type = "pdf_internal_link"
-                else:
-                    continue # Skip link to current page
-
-            # Check for deeper actions (JS/Widget) using the underlying annotation object
-            if content:
-                # Find the actual annotation object for rich properties
-                annot = page.find_annot(link_rect)
-                if annot:
-                    if annot.script:
-                        # Overwrite content with script for clarity if available
-                        content = f"JavaScript Action: {annot.script.strip()[:100]}..."
-                        link_type = "pdf_js_action"
-                    elif annot.field_name and annot.a:
-                        # Check for Widget Actions
-                        action = annot.a
-                        if action.n == "/URI" and action.uri:
-                            content = action.uri
-                            link_type = "pdf_widget_uri_action"
-                        elif action.n == "/JavaScript" and action.js:
-                            content = f"Widget JS Action: {action.js.strip()[:100]}..."
-                            link_type = "pdf_widget_js_action"
+            elif annot.dest:
+                content = f"Internal PDF Destination: {annot.dest}"
+                link_type = "pdf_internal_link"
+            elif annot.script:
+                content = f"Script Annotation: {annot.script.strip()[:100]}..."
+                link_type = "pdf_script_annotation"
             
-            # Use annot.url as a final fallback for non-URI/non-dest links if 'content' is still empty
-            if not content and annot and annot.url:
-                content = annot.url
-                link_type = "pdf_generic_action"
+            # 3. Final Fallback: Check Widget Actions explicitly
+            elif annot.field_name and annot.a:
+                action = annot.a
+                if action.n == "/URI" and action.uri:
+                    content = action.uri
+                    link_type = "pdf_widget_uri_action"
+                elif action.n == "/JavaScript" and action.js:
+                    content = f"Widget JS Action: {action.js.strip()[:100]}..."
+                    link_type = "pdf_widget_js_action"
 
+        
+        if content and link_type:
+            # Filter out generic self-referencing internal links
+            if link_type == "pdf_internal_link" and isinstance(annot.dest, list) and annot.dest[0] == page.number:
+                continue
+                 
+            links.append({
+                "type": link_type,
+                "content": content,
+                "description": f"Structural {link_type} found on PDF page",
+                "confidence": 1.0 
+            })
+            print(f"      ✅ Found Structural Link: {content[:50]}...")
+    
+    # -------------------------------------------------------------
+    # NEW: Raw PDF Object Search (Final Attempt to find hidden URLs)
+    # -------------------------------------------------------------
+    url_pattern = r'(https?|mailto|www)\:\/\/[\S]+'
+    
+    doc = page.parent
+    for xref in range(1, doc.xref_length()):
+        try:
+            # Get raw stream or dictionary content
+            raw_data = doc.xref_object(xref)
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode('latin-1', 'ignore')
+            elif isinstance(raw_data, str):
+                raw_data = raw_data
+            else:
+                continue
 
-            if content and link_type:
-                links.append({
-                    "type": link_type,
-                    "content": content,
-                    "description": f"Structural {link_type} found on PDF page",
-                    "confidence": 1.0 
-                })
-                print(f"      ✅ Found Structural Link: {content[:50]}...")
+            # Search for URL patterns in the raw content
+            found_urls = re.findall(url_pattern, raw_data, re.IGNORECASE)
+            
+            for url_match in found_urls:
+                # Reconstruct the full URL string from the match
+                full_url = url_match[0] + "://" + url_match[1] if url_match[0] not in ['http','https','mailto'] else url_match[0] + "://" + url_match[1]
+                
+                # Check if this URL is associated with the current page/image (this is a heuristic)
+                if page.number == doc.page_count - 1 or page.number == 0: # Only look at links in the first/last page raw objects
+                    if not any(link['content'].strip().startswith(url_match[1]) for link in links):
+                        links.append({
+                            "type": "raw_object_search",
+                            "content": full_url,
+                            "description": f"URL found in raw PDF object XREF {xref}. (Heuristic Match)",
+                            "confidence": 0.1 # Low confidence, as it's a brute force match
+                        })
+                        print(f"      ✅ Found RAW Link (Heuristic): {full_url[:50]}...")
+
+        except Exception:
+            continue
+    # -------------------------------------------------------------
     
     return links
     
