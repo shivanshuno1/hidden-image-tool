@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 type LinkInfo = {
   type: string;
@@ -13,6 +14,7 @@ type ImageInfo = {
   url: string;
   clickable_link_found: boolean;
   extracted_links?: LinkInfo[];
+  size?: number;
 };
 
 type PageInfo = {
@@ -27,10 +29,6 @@ type ResultViewerProps = {
 export default function ResultViewer({ result }: ResultViewerProps) {
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
-  const handleImageError = (url: string) => {
-    setFailedImages((prev) => new Set(prev).add(url));
-  };
-
   const downloadReport = () => {
     const dataStr =
       "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
@@ -42,7 +40,13 @@ export default function ResultViewer({ result }: ResultViewerProps) {
     downloadAnchorNode.remove();
   };
 
-  const openLink = (url: string) => window.open(url, "_blank");
+  const handleImageError = (url: string) => {
+    setFailedImages((prev) => new Set(prev).add(url));
+  };
+
+  const openLink = (url: string) => {
+    window.open(url, "_blank");
+  };
 
   return (
     <div className="p-8 space-y-8 bg-white">
@@ -70,6 +74,7 @@ export default function ResultViewer({ result }: ResultViewerProps) {
           <div className="flex flex-wrap gap-4">
             {page.images.map((img, idx) => {
               const isFailed = failedImages.has(img.url);
+              const firstLink = img.extracted_links?.[0]?.content; // ✅ Safe optional chaining
 
               return (
                 <div
@@ -77,21 +82,18 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                   className="border p-2 rounded-lg min-w-[200px] flex flex-col items-center"
                 >
                   {/* Image */}
-                  <div className="w-full h-48 flex items-center justify-center bg-gray-100 mb-2">
+                  <div className="w-full h-48 relative mb-2 bg-gray-100 flex items-center justify-center">
                     {isFailed ? (
                       <div className="text-gray-500 text-center">Failed to load image</div>
                     ) : (
-                      <img
+                      <Image
                         src={img.url}
                         alt={img.filename}
-                        className="max-h-full max-w-full object-contain cursor-pointer"
+                        fill
+                        style={{ objectFit: "contain" }}
+                        className="cursor-pointer"
+                        onClick={() => firstLink && openLink(firstLink)}
                         onError={() => handleImageError(img.url)}
-                        title={img.clickable_link_found ? "Click to follow link" : "No links"}
-                        onClick={() =>
-                          img.extracted_links && img.extracted_links.length
-                            ? openLink(img.extracted_links[0].content)
-                            : null
-                        }
                       />
                     )}
                   </div>
@@ -105,9 +107,9 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                   </div>
 
                   {/* Go to first link if exists */}
-                  {img.extracted_links && img.extracted_links.length > 0 && (
+                  {firstLink && (
                     <button
-                      onClick={() => openLink(img.extracted_links[0].content)}
+                      onClick={() => openLink(firstLink)}
                       className="mt-2 bg-blue-500 text-white px-2 py-1 rounded text-xs"
                     >
                       Go to Link
