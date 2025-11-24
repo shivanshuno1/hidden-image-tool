@@ -3,10 +3,12 @@ from flask_cors import CORS
 import os
 import fitz  # PyMuPDF
 from PIL import Image
+import numpy as np
 from pyzbar.pyzbar import decode
 import easyocr
 import re
 import io
+import cv2
 
 app = Flask(__name__)
 CORS(app)
@@ -25,36 +27,118 @@ reader = easyocr.Reader(['en'], gpu=False)
 # --------------------------
 # Helper functions
 # --------------------------
+def preprocess_image(img_path):
+    """Preprocess image for better OCR results."""
+    try:
+        # Read image with OpenCV
+        img = cv2.imread(img_path)
+        if img is None:
+            return None
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Apply thresholding to get better contrast
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Denoise
+        denoised = cv2.fastNlMeansDenoising(thresh)
+        
+        return denoised
+    except Exception as e:
+        print(f"Error preprocessing image: {e}")
+        return None
+
 def extract_qr_codes(img_path):
     """Detect QR codes in the image."""
-    image = Image.open(img_path)
-    qr_results = decode(image)
     qr_links = []
-    for qr in qr_results:
-        content = qr.data.decode("utf-8").strip()
-        if content:
-            qr_links.append({
-                "type": "qr",
-                "content": content,
-                "description": "QR code detected in image"
-            })
+    try:
+        # Try with original image
+        image = Image.open(img_path)
+        qr_results = decode(image)
+        
+        # If no QR codes found, try with preprocessed image
+        if not qr_results:
+            preprocessed = preprocess_image(img_path)
+            if preprocessed is not None:
+                qr_results = decode(preprocessed)
+        
+        for qr in qr_results:
+            try:
+                content = qr.data.decode("utf-8").strip()
+                if content:
+                    qr_links.append({
+                        "type": "qr",
+                        "content": content,
+                        "description": "QR code detected in image"
+                    })
+            except Exception as e:
+                print(f"Error decoding QR: {e}")
+                continue
+    except Exception as e:
+        print(f"Error extracting QR codes: {e}")
+    
     return qr_links
 
 def extract_urls_from_image(img_path):
     """Use EasyOCR to extract URLs from images."""
-    image = Image.open(img_path)
-    # EasyOCR works on PIL images
-    ocr_results = reader.readtext(image, detail=0)
     ocr_links = []
-    for text in ocr_results:
-        urls = re.findall(r'https?://[^\s]+', text)
+    try:
+        # Try OCR on original image
+        image = Image.open(img_path)
+        ocr_results = reader.readtext(np.array(image), detail=0, paragraph=False)
+        
+        print(f"OCR Results for {img_path}: {ocr_results}")
+        
+        # If no text found, try with preprocessed image
+        if not ocr_results:
+            preprocessed = preprocess_image(img_path)
+            if preprocessed is not None:
+                ocr_results = reader.readtext(preprocessed, detail=0, paragraph=False)
+                print(f"OCR Results (preprocessed) for {img_path}: {ocr_results}")
+        
+        # Extract URLs and other useful text
+        all_text = " ".join(ocr_results)
+        
+        # Find URLs
+        url_pattern = r'https?://[^\s,;)"\']+'
+        urls = re.findall(url_pattern, all_text, re.IGNORECASE)
+        
         for url in urls:
-            ocr_links.append({
-                "type": "ocr_text",
-                "content": url.strip(),
-                "description": "URL detected from text in image"
-            })
-    print(f"OCR Text for {img_path}: {ocr_results}")
+            # Clean up URL
+            url = url.strip('.,;:!?')
+            if url:
+                ocr_links.append({
+                    "type": "ocr_url",
+                    "content": url,
+                    "description": "URL detected from text in image"
+                })
+        
+        # Also look for partial URLs without protocol
+        partial_url_pattern = r'www\.[^\s,;)"\']+'
+        partial_urls = re.findall(partial_url_pattern, all_text, re.IGNORECASE)
+        for url in partial_urls:
+            url = url.strip('.,;:!?')
+            if url and url not in [link['content'] for link in ocr_links]:
+                ocr_links.append({
+                    "type": "ocr_url",
+                    "content": f"https://{url}",
+                    "description": "Partial URL detected from text in image"
+                })
+        
+        # If we found text but no URLs, include some text content
+        if ocr_results and not ocr_links:
+            combined_text = " ".join(ocr_results[:3])  # First 3 text blocks
+            if len(combined_text) > 10:
+                ocr_links.append({
+                    "type": "ocr_text",
+                    "content": combined_text[:200],  # Limit to 200 chars
+                    "description": "Text content detected in image"
+                })
+    
+    except Exception as e:
+        print(f"Error extracting URLs from image: {e}")
+    
     return ocr_links
 
 # --------------------------
@@ -82,7 +166,10 @@ def upload_file():
 
     # Clear previous images
     for f in os.listdir(EXTRACT_FOLDER):
-        os.remove(os.path.join(EXTRACT_FOLDER, f))
+        try:
+            os.remove(os.path.join(EXTRACT_FOLDER, f))
+        except Exception as e:
+            print(f"Error removing file: {e}")
 
     pdf = fitz.open(filepath)
     report = []
@@ -105,25 +192,41 @@ def upload_file():
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
 
+                print(f"Processing image: {filename}")
+
                 # --------------------------
                 # Extract links from image
                 # --------------------------
                 extracted_links = []
-                extracted_links.extend(extract_qr_codes(img_path))
-                extracted_links.extend(extract_urls_from_image(img_path))
+                
+                # Try QR code extraction
+                qr_links = extract_qr_codes(img_path)
+                print(f"QR links found: {len(qr_links)}")
+                extracted_links.extend(qr_links)
+                
+                # Try OCR extraction
+                ocr_links = extract_urls_from_image(img_path)
+                print(f"OCR links found: {len(ocr_links)}")
+                extracted_links.extend(ocr_links)
 
-                # Remove duplicates
-                extracted_links = [dict(t) for t in {tuple(d.items()) for d in extracted_links}]
+                # Remove duplicates based on content
+                seen = set()
+                unique_links = []
+                for link in extracted_links:
+                    content = link['content']
+                    if content not in seen:
+                        seen.add(content)
+                        unique_links.append(link)
 
                 page_info["images"].append({
                     "filename": filename,
                     "url": f"{BACKEND_URL}/images/{filename}",
-                    "clickable_link_found": len(extracted_links) > 0,
-                    "extracted_links": extracted_links
+                    "clickable_link_found": len(unique_links) > 0,
+                    "extracted_links": unique_links
                 })
 
             except Exception as e:
-                print(f"Error processing image: {e}")
+                print(f"Error processing image on page {page_num}, img {img_index}: {e}")
                 continue
 
         report.append(page_info)
