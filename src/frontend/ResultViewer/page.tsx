@@ -74,7 +74,6 @@ export default function ResultViewer({ result }: ResultViewerProps) {
           <div className="flex flex-wrap gap-4">
             {page.images.map((img, idx) => {
               const isFailed = failedImages.has(img.url);
-              const firstLink = img.extracted_links?.[0]?.content; // ✅ Safe optional chaining
 
               return (
                 <div
@@ -92,7 +91,6 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                         fill
                         style={{ objectFit: "contain" }}
                         className="cursor-pointer"
-                        onClick={() => firstLink && openLink(firstLink)}
                         onError={() => handleImageError(img.url)}
                       />
                     )}
@@ -103,23 +101,29 @@ export default function ResultViewer({ result }: ResultViewerProps) {
 
                   {/* Clickable link badge */}
                   <div className="text-xs text-red-600 font-bold mt-1">
-                    {img.clickable_link_found ? "⚠️ Clickable Link" : "No Link"}
+                    {img.clickable_link_found ? "⚠️ Clickable Link(s) Detected" : "No Link"}
                   </div>
 
-                  {/* Go to first link if exists */}
-                  {firstLink && (
-                    <button
-                      onClick={() => openLink(firstLink)}
-                      className="mt-2 bg-blue-500 text-white px-2 py-1 rounded text-xs"
-                    >
-                      Go to Link
-                    </button>
+                  {/* Render all extracted links */}
+                  {img.extracted_links && img.extracted_links.length > 0 && (
+                    <div className="flex flex-col gap-1 mt-2 w-full">
+                      {img.extracted_links.map((link, linkIdx) => (
+                        <button
+                          key={linkIdx}
+                          onClick={() => openLink(link.content)}
+                          className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs truncate w-full"
+                          title={link.content}
+                        >
+                          {link.type === "qr" ? "QR Link" : "OCR Link"}
+                        </button>
+                      ))}
+                    </div>
                   )}
 
                   {/* View Image Button */}
                   <button
                     onClick={() => window.open(img.url, "_blank")}
-                    className="mt-1 bg-gray-300 hover:bg-gray-400 text-gray-800 px-2 py-1 rounded text-xs"
+                    className="mt-2 bg-gray-300 hover:bg-gray-400 text-gray-800 px-2 py-1 rounded text-xs w-full"
                   >
                     View Image
                   </button>
