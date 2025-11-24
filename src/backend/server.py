@@ -4,7 +4,7 @@ import os
 import fitz  # PyMuPDF
 from PIL import Image
 from pyzbar.pyzbar import decode
-import pytesseract
+import easyocr
 import re
 import io
 
@@ -17,13 +17,16 @@ EXTRACT_FOLDER = os.path.join(BASE_DIR, "extracted_images")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXTRACT_FOLDER, exist_ok=True)
 
-# Replace with your actual frontend/backend domain
 BACKEND_URL = "https://hidden-backend-1.onrender.com"
 
+# Initialize EasyOCR reader once
+reader = easyocr.Reader(['en'], gpu=False)
+
 # --------------------------
-# Helper Functions
+# Helper functions
 # --------------------------
 def extract_qr_codes(img_path):
+    """Detect QR codes in the image."""
     image = Image.open(img_path)
     qr_results = decode(image)
     qr_links = []
@@ -37,19 +40,21 @@ def extract_qr_codes(img_path):
             })
     return qr_links
 
-def extract_urls_from_ocr(img_path):
-    image = Image.open(img_path).convert("L")  # grayscale
-    bw = image.point(lambda x: 0 if x < 128 else 255, '1')  # threshold
-    bw = bw.resize((bw.width*2, bw.height*2))  # upscale
-    text = pytesseract.image_to_string(bw)
-    urls = re.findall(r'https?://[^\s]+', text)
+def extract_urls_from_image(img_path):
+    """Use EasyOCR to extract URLs from images."""
+    image = Image.open(img_path)
+    # EasyOCR works on PIL images
+    ocr_results = reader.readtext(image, detail=0)
     ocr_links = []
-    for url in urls:
-        ocr_links.append({
-            "type": "ocr_text",
-            "content": url.strip(),
-            "description": "URL detected from text in image"
-        })
+    for text in ocr_results:
+        urls = re.findall(r'https?://[^\s]+', text)
+        for url in urls:
+            ocr_links.append({
+                "type": "ocr_text",
+                "content": url.strip(),
+                "description": "URL detected from text in image"
+            })
+    print(f"OCR Text for {img_path}: {ocr_results}")
     return ocr_links
 
 # --------------------------
@@ -75,7 +80,7 @@ def upload_file():
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
 
-    # Clear previous extracted images
+    # Clear previous images
     for f in os.listdir(EXTRACT_FOLDER):
         os.remove(os.path.join(EXTRACT_FOLDER, f))
 
@@ -105,7 +110,7 @@ def upload_file():
                 # --------------------------
                 extracted_links = []
                 extracted_links.extend(extract_qr_codes(img_path))
-                extracted_links.extend(extract_urls_from_ocr(img_path))
+                extracted_links.extend(extract_urls_from_image(img_path))
 
                 # Remove duplicates
                 extracted_links = [dict(t) for t in {tuple(d.items()) for d in extracted_links}]
