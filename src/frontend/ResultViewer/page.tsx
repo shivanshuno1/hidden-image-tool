@@ -107,16 +107,29 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                   {/* Render all extracted links */}
                   {img.extracted_links && img.extracted_links.length > 0 && (
                     <div className="flex flex-col gap-1 mt-2 w-full">
-                      {img.extracted_links.map((link, linkIdx) => (
-                        <button
-                          key={linkIdx}
-                          onClick={() => openLink(link.content)}
-                          className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs truncate w-full"
-                          title={link.content}
-                        >
-                          {link.type === "qr" ? "QR Link" : "OCR Link"}
-                        </button>
-                      ))}
+                      {img.extracted_links.map((link, linkIdx) => {
+                        // NEW LOGIC: Determine label based on detailed link type
+                        const getLinkLabel = (linkType: string) => {
+                          if (linkType.startsWith('pdf_widget_')) {
+                            return 'WIDGET ' + linkType.replace('pdf_widget_', '').replace(/_action$/, '').toUpperCase() + ' Link';
+                          }
+                          if (linkType.startsWith('pdf_')) {
+                            return linkType.replace('pdf_', '').replace(/_(uri|link|action)$/, '').toUpperCase() + ' Link';
+                          }
+                          return linkType === 'qr' ? 'QR Code' : 'OCR Text';
+                        };
+                        
+                        return (
+                          <button
+                            key={linkIdx}
+                            onClick={() => openLink(link.content)}
+                            className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs truncate w-full"
+                            title={link.content}
+                          >
+                            {getLinkLabel(link.type)}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
