@@ -174,13 +174,13 @@ def extract_text_and_urls(img_path):
         # If we found text but no URLs, include text content
         if not links and all_text:
             combined = " ".join(all_text[:3])
-            if len(combined) > 15:
-                links.append({
-                    "type": "text",
-                    "content": combined[:250],
-                    "description": "Text detected (no URLs found)"
-                })
-                print(f"    ℹ No URLs found, returning text content")
+            # MODIFIED: Removed the length filter entirely to capture even short text
+            links.append({
+                "type": "text",
+                "content": combined[:250],
+                "description": "Text detected (no URLs found)"
+            })
+            print(f"    ℹ No URLs found, returning text content: {combined}")
     
     except Exception as e:
         print(f"    [ERROR] OCR extraction: {e}")
@@ -189,6 +189,38 @@ def extract_text_and_urls(img_path):
     
     return links
 
+# NEW HELPER FUNCTION TO EXTRACT PDF STRUCTURAL LINKS
+def extract_pdf_links_for_area(page, image_area_rect):
+    """Detects PDF Link Annotations that overlap with the image's area."""
+    links = []
+    
+    # Create a fitz.Rect object from the image area list
+    from fitz import Rect 
+    image_rect = Rect(image_area_rect)
+
+    print(f"      Scanning for PDF annotations over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
+    
+    # Iterate over all annotations on the page
+    for annot in page.annots():
+        # fitz.ANNOT_LINK is annotation type 4
+        if annot.type[0] == 4:
+            link_rect = annot.rect
+            
+            # Check for significant overlap between image and link annotation
+            # We check for intersection AND that the link covers at least 50% of the image area
+            if link_rect.intersects(image_rect) and link_rect.get_area() > (image_rect.get_area() * 0.5):
+                uri = annot.uri
+                if uri:
+                    links.append({
+                        "type": "pdf_link_annotation",
+                        "content": uri,
+                        "description": "Link Annotation found on PDF page structure",
+                        "confidence": 1.0 
+                    })
+                    print(f"      ✓ Found PDF Link: {uri[:50]}...")
+    
+    return links
+    
 # --------------------------
 # Routes
 # --------------------------
@@ -270,17 +302,23 @@ def upload_file():
                 image_area = [0, 0, 0, 0]
                 if image_rects:
                     rect = image_rects[0]
+                    # Store image area as [x0, y0, x1, y1] for fitz.Rect comparison
                     image_area = [rect.x0, rect.y0, rect.x1, rect.y1]
 
                 # SCAN FOR LINKS
                 all_links = []
                 
-                # 1. QR Codes
+                # 1. STRUCTURAL PDF LINKS 
+                print(f"      Scanning for structural PDF links...")
+                pdf_links = extract_pdf_links_for_area(page, image_area)
+                all_links.extend(pdf_links)
+                
+                # 2. QR Codes (Existing)
                 print(f"      Scanning for QR codes...")
                 qr_links = extract_qr_codes(img_path)
                 all_links.extend(qr_links)
                 
-                # 2. Text & URLs
+                # 3. Text & URLs (Existing)
                 print(f"      Scanning for text and URLs...")
                 text_links = extract_text_and_urls(img_path)
                 all_links.extend(text_links)
