@@ -174,7 +174,7 @@ def extract_text_and_urls(img_path):
         # If we found text but no URLs, include text content
         if not links and all_text:
             combined = " ".join(all_text[:3])
-            # MODIFIED: Removed the length filter entirely to capture even short text
+            # MODIFIED: Removed the length filter entirely to capture any detected text
             links.append({
                 "type": "text",
                 "content": combined[:250],
@@ -189,35 +189,54 @@ def extract_text_and_urls(img_path):
     
     return links
 
-# NEW HELPER FUNCTION TO EXTRACT PDF STRUCTURAL LINKS
+# MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects PDF Link Annotations that overlap with the image's area."""
+    """Detects ALL PDF Annotations (Link, GoTo, JavaScript) that overlap with the image's area."""
     links = []
     
     # Create a fitz.Rect object from the image area list
     from fitz import Rect 
     image_rect = Rect(image_area_rect)
 
-    print(f"      Scanning for PDF annotations over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
+    print(f"      Scanning for ALL structural PDF links/actions over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
     
     # Iterate over all annotations on the page
     for annot in page.annots():
-        # fitz.ANNOT_LINK is annotation type 4
-        if annot.type[0] == 4:
-            link_rect = annot.rect
+        # Check if the annotation area significantly overlaps with the image
+        link_rect = annot.rect
+        # Require 50% overlap for confidence in the association
+        if link_rect.intersects(image_rect) and link_rect.get_area() > (image_rect.get_area() * 0.5):
             
-            # Check for significant overlap between image and link annotation
-            # We check for intersection AND that the link covers at least 50% of the image area
-            if link_rect.intersects(image_rect) and link_rect.get_area() > (image_rect.get_area() * 0.5):
-                uri = annot.uri
-                if uri:
-                    links.append({
-                        "type": "pdf_link_annotation",
-                        "content": uri,
-                        "description": "Link Annotation found on PDF page structure",
-                        "confidence": 1.0 
-                    })
-                    print(f"      ✓ Found PDF Link: {uri[:50]}...")
+            content = None
+            link_type = None
+            
+            # 1. Check for standard URI Link (Type 4: Standard External Web Link)
+            if annot.type[0] == 4 and annot.uri: 
+                content = annot.uri
+                link_type = "pdf_uri_link"
+            
+            # 2. Check for JavaScript Action (Type 6: Programmatic Link/Action)
+            # This is commonly used for interactive PDFs created by tools like Figma/InDesign.
+            elif annot.type[0] == 6 and annot.script:
+                # Truncate script content for output but capture it.
+                content = f"JavaScript Action: {annot.script.strip()[:100]}..."
+                link_type = "pdf_js_action"
+            
+            # 3. Check for Launch or GoTo Action (Internal link or launching an external program/file)
+            # This covers annotations linked to internal PDF destinations or external files.
+            elif annot.type[0] == 3 and annot.dest: 
+                # annot.dest can be a simple name or a complex structure
+                content = f"Internal GoTo/File: {annot.dest}"
+                link_type = "pdf_goto_action"
+                
+            if content and link_type:
+                links.append({
+                    "type": link_type,
+                    "content": content,
+                    "description": f"Structural {link_type} found on PDF page",
+                    "confidence": 1.0 
+                })
+                print(f"      ✅ Found Structural Link/Action: {content[:50]}...")
     
     return links
     
@@ -308,7 +327,7 @@ def upload_file():
                 # SCAN FOR LINKS
                 all_links = []
                 
-                # 1. STRUCTURAL PDF LINKS 
+                # 1. STRUCTURAL PDF LINKS (COMPREHENSIVE)
                 print(f"      Scanning for structural PDF links...")
                 pdf_links = extract_pdf_links_for_area(page, image_area)
                 all_links.extend(pdf_links)
@@ -318,7 +337,7 @@ def upload_file():
                 qr_links = extract_qr_codes(img_path)
                 all_links.extend(qr_links)
                 
-                # 3. Text & URLs (Existing)
+                # 3. Text & URLs (Existing - Highly Aggressive OCR)
                 print(f"      Scanning for text and URLs...")
                 text_links = extract_text_and_urls(img_path)
                 all_links.extend(text_links)
