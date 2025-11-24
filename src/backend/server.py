@@ -191,7 +191,7 @@ def extract_text_and_urls(img_path):
 
 # MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects ALL PDF Annotations (Link, GoTo, JavaScript) that overlap with the image's area."""
+    """Detects ALL PDF Annotations (Link, GoTo, JavaScript, Widget Actions) that overlap with the image's area."""
     links = []
     
     # Create a fitz.Rect object from the image area list
@@ -216,19 +216,31 @@ def extract_pdf_links_for_area(page, image_area_rect):
                 link_type = "pdf_uri_link"
             
             # 2. Check for JavaScript Action (Type 6: Programmatic Link/Action)
-            # This is commonly used for interactive PDFs created by tools like Figma/InDesign.
             elif annot.type[0] == 6 and annot.script:
                 # Truncate script content for output but capture it.
                 content = f"JavaScript Action: {annot.script.strip()[:100]}..."
                 link_type = "pdf_js_action"
             
-            # 3. Check for Launch or GoTo Action (Internal link or launching an external program/file)
-            # This covers annotations linked to internal PDF destinations or external files.
+            # 3. Check for Launch or GoTo Action (Type 3: Internal link or launching an external program/file)
             elif annot.type[0] == 3 and annot.dest: 
                 # annot.dest can be a simple name or a complex structure
                 content = f"Internal GoTo/File: {annot.dest}"
                 link_type = "pdf_goto_action"
-                
+            
+            # 4. NEW: Check for Widget/Form Field Actions
+            # Widget annotations (form fields) often have the link in the .a (action) property
+            elif annot.field_name and annot.a:
+                action = annot.a
+                if action.n == "/URI" and action.uri:
+                    content = action.uri
+                    link_type = "pdf_widget_uri_action"
+                elif action.n == "/JavaScript" and action.js:
+                    content = f"Widget JS Action: {action.js.strip()[:100]}..."
+                    link_type = "pdf_widget_js_action"
+                elif action.n == "/GoTo" and action.dest:
+                    content = f"Widget GoTo: {action.dest}"
+                    link_type = "pdf_widget_goto_action"
+
             if content and link_type:
                 links.append({
                     "type": link_type,
