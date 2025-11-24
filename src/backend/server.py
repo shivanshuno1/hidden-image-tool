@@ -189,66 +189,76 @@ def extract_text_and_urls(img_path):
     
     return links
 
-# MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
+# FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects PDF Link Annotations that overlap with the image's area using page.get_links()."""
+    """Detects ALL PDF Annotations (Link, GoTo, JavaScript, Widget Actions, File Launch) that overlap with the image's area."""
     links = []
     
     # Create a fitz.Rect object from the image area list
     from fitz import Rect 
     image_rect = Rect(image_area_rect)
 
-    print(f"      Scanning for structural PDF links using page.get_links() over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
+    print(f"      Scanning for ALL structural PDF links/actions over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
     
     # Use the highly optimized method to get all link annotations
     pdf_annotations = page.get_links()
 
     for link_data in pdf_annotations:
-        # link_data['rect'] is already a fitz.Rect object
         link_rect = link_data['rect'] 
-        uri = link_data.get('uri')
-        kind = link_data.get('kind', 0)
         
         # We only check for intersection, removing the strict 50% overlap rule
         if link_rect.intersects(image_rect):
             
-            content = uri
+            content = None
             link_type = None
 
-            if content:
-                 # Type 4 is fitz.LINK_URI (most common web link)
-                link_type = "pdf_uri_link" if kind == 4 else "pdf_link_annotation"
-            else:
-                # Check for internal link target/destination
-                dest = link_data.get('dest')
-                if dest:
-                    # 'dest' for a GoTo action can be a simple name or a complex structure
-                    content = f"Internal PDF Destination: {dest}"
-                    link_type = "pdf_internal_link"
+            uri = link_data.get('uri')
+            dest = link_data.get('dest')
+            file = link_data.get('file') # NEW: Check for embedded/remote file launch
+            kind = link_data.get('kind', 0)
             
-            # Additional check for JavaScript/Widget Action in the underlying annotation object
+            if uri:
+                 # Type 4 is fitz.LINK_URI (most common web link)
+                content = uri
+                link_type = "pdf_uri_link"
+            elif file:
+                # Type 3 is fitz.LINK_LAUNCH or fitz.LINK_GOTOR
+                content = f"PDF File Launch: {file}"
+                link_type = "pdf_file_launch_link"
+            elif dest:
+                # dest is used for internal links (GoTo)
+                content = f"Internal PDF Destination: {dest}"
+                link_type = "pdf_internal_link"
+                
+            # If a simple link was found, check the underlying annotation object for deeper actions (JS/Widget)
             annot = page.find_annot(link_rect)
             if annot:
                 if annot.script:
+                    # Overwrite simple link if a script action is present
                     content = f"JavaScript Action: {annot.script.strip()[:100]}..."
                     link_type = "pdf_js_action"
                 elif annot.field_name and annot.a:
+                    # Overwrite if a widget action is found
                     action = annot.a
                     if action.n == "/URI" and action.uri:
                         content = action.uri
                         link_type = "pdf_widget_uri_action"
-                    # Add other widget checks if necessary, but URI is the primary goal
-                
+                    elif action.n == "/JavaScript" and action.js:
+                        content = f"Widget JS Action: {action.js.strip()[:100]}..."
+                        link_type = "pdf_widget_js_action"
+            
             if content and link_type:
-                # Skip generic internal links that just point to the current page number
-                if link_type != "pdf_internal_link" or (isinstance(link_data['dest'], list) and len(link_data['dest']) > 1):
-                    links.append({
-                        "type": link_type,
-                        "content": content,
-                        "description": f"Structural {link_type} found on PDF page",
-                        "confidence": 1.0 
-                    })
-                    print(f"      ✅ Found Structural Link: {content[:50]}...")
+                # Filter out generic self-referencing internal links
+                if link_type == "pdf_internal_link" and isinstance(link_data['dest'], list) and link_data['dest'][0] == page.number:
+                     continue # Skip internal links pointing to the current page
+                     
+                links.append({
+                    "type": link_type,
+                    "content": content,
+                    "description": f"Structural {link_type} found on PDF page",
+                    "confidence": 1.0 
+                })
+                print(f"      ✅ Found Structural Link: {content[:50]}...")
     
     return links
     
