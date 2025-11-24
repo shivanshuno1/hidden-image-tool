@@ -21,8 +21,10 @@ os.makedirs(EXTRACT_FOLDER, exist_ok=True)
 
 BACKEND_URL = "https://hidden-backend-1.onrender.com"
 
-# Initialize EasyOCR reader once
+# Initialize EasyOCR reader once (this takes time on first run)
+print("Initializing EasyOCR...")
 reader = easyocr.Reader(['en'], gpu=False)
+print("EasyOCR ready!")
 
 # --------------------------
 # Helper functions
@@ -34,40 +36,37 @@ def preprocess_image_for_ocr(img_path):
         if img is None:
             return None
         
-        # Increase image size for better OCR
-        scale_factor = 2
-        width = int(img.shape[1] * scale_factor)
-        height = int(img.shape[0] * scale_factor)
-        img = cv2.resize(img, (width, height), interpolation=cv2.INTER_CUBIC)
+        # Increase size for better text detection
+        scale = 2
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         
+        # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Apply adaptive thresholding for better text detection
+        # Apply adaptive thresholding
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                        cv2.THRESH_BINARY, 11, 2)
         
         return binary
     except Exception as e:
-        print(f"Error preprocessing image: {e}")
+        print(f"    [ERROR] Preprocessing failed: {e}")
         return None
 
 def extract_qr_codes(img_path):
     """Detect QR codes and barcodes in the image."""
-    qr_links = []
+    links = []
     try:
-        # Try original image
+        # Try with PIL
         image = Image.open(img_path)
         qr_results = decode(image)
         
-        # Try with different preprocessing
+        # If nothing found, try with OpenCV preprocessing
         if not qr_results:
             img_cv = cv2.imread(img_path)
             if img_cv is not None:
-                # Try grayscale
                 gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
                 qr_results = decode(gray)
                 
-                # Try with thresholding
                 if not qr_results:
                     _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
                     qr_results = decode(binary)
@@ -76,150 +75,143 @@ def extract_qr_codes(img_path):
             try:
                 content = qr.data.decode("utf-8").strip()
                 if content:
-                    qr_type = qr.type
-                    qr_links.append({
-                        "type": "qr_code" if qr_type == "QRCODE" else "barcode",
+                    links.append({
+                        "type": f"{qr.type}",
                         "content": content,
-                        "description": f"{qr_type} detected in image"
+                        "description": f"{qr.type} detected"
                     })
-                    print(f"  Found {qr_type}: {content}")
+                    print(f"    ✓ Found {qr.type}: {content[:50]}...")
             except Exception as e:
-                print(f"  Error decoding QR/barcode: {e}")
-                continue
+                print(f"    [ERROR] Decoding QR: {e}")
     except Exception as e:
-        print(f"  Error extracting QR codes: {e}")
+        print(f"    [ERROR] QR extraction: {e}")
     
-    return qr_links
+    return links
 
 def extract_text_and_urls(img_path):
-    """Use EasyOCR to extract all text and URLs from images."""
-    extracted_data = []
+    """Use EasyOCR to extract text and find URLs."""
+    links = []
     
     try:
-        # Read original image
+        print(f"    Running OCR on image...")
+        
+        # Read image
         image = Image.open(img_path)
         img_array = np.array(image)
         
-        # Get detailed OCR results with bounding boxes
-        ocr_results = reader.readtext(img_array, detail=1)
+        # Run OCR with bounding boxes
+        ocr_results = reader.readtext(img_array, detail=1, paragraph=False)
         
-        print(f"  Found {len(ocr_results)} text blocks")
+        print(f"    Found {len(ocr_results)} text blocks")
         
-        all_text_blocks = []
+        all_text = []
+        
+        # URL patterns
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-        partial_url_pattern = r'www\.[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[^\s<>"{}|\\^`\[\]]+'
+        www_pattern = r'www\.[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}'
         
         for bbox, text, confidence in ocr_results:
             text = text.strip()
-            if text and confidence > 0.3:  # Filter low confidence results
-                all_text_blocks.append(text)
-                print(f"  OCR Text (conf: {confidence:.2f}): {text}")
+            
+            if text and confidence > 0.25:  # Lower threshold to catch more text
+                all_text.append(text)
+                print(f"    OCR: '{text}' (confidence: {confidence:.2f})")
                 
-                # Check for URLs in this text block
-                urls = re.findall(url_pattern, text, re.IGNORECASE)
-                for url in urls:
+                # Find full URLs
+                found_urls = re.findall(url_pattern, text, re.IGNORECASE)
+                for url in found_urls:
                     url = url.rstrip('.,;:!?)')
-                    extracted_data.append({
-                        "type": "url",
-                        "content": url,
-                        "description": "URL found in image text",
-                        "confidence": round(confidence, 2)
-                    })
+                    if len(url) > 10:  # Filter out noise
+                        links.append({
+                            "type": "url",
+                            "content": url,
+                            "description": "URL found in image text",
+                            "confidence": round(confidence, 2)
+                        })
+                        print(f"    ✓ Found URL: {url}")
                 
-                # Check for partial URLs
-                partial_urls = re.findall(partial_url_pattern, text, re.IGNORECASE)
-                for url in partial_urls:
+                # Find www URLs
+                found_www = re.findall(www_pattern, text, re.IGNORECASE)
+                for url in found_www:
                     url = url.rstrip('.,;:!?)')
-                    full_url = f"https://{url}" if not url.startswith('http') else url
-                    extracted_data.append({
+                    full_url = f"https://{url}"
+                    links.append({
                         "type": "url",
                         "content": full_url,
                         "description": "URL found in image text",
                         "confidence": round(confidence, 2)
                     })
+                    print(f"    ✓ Found www URL: {full_url}")
         
-        # If no URLs found, try with preprocessed image
-        if not extracted_data:
-            print("  No URLs in original, trying preprocessed image...")
+        # If no links found, try with preprocessed image
+        if not links and len(all_text) == 0:
+            print(f"    No text found, trying preprocessed image...")
             preprocessed = preprocess_image_for_ocr(img_path)
+            
             if preprocessed is not None:
-                ocr_results_preprocessed = reader.readtext(preprocessed, detail=1)
+                ocr_results = reader.readtext(preprocessed, detail=1, paragraph=False)
+                print(f"    Preprocessed OCR found {len(ocr_results)} text blocks")
                 
-                for bbox, text, confidence in ocr_results_preprocessed:
+                for bbox, text, confidence in ocr_results:
                     text = text.strip()
-                    if text and confidence > 0.3:
-                        all_text_blocks.append(text)
+                    
+                    if text and confidence > 0.25:
+                        all_text.append(text)
+                        print(f"    OCR (enhanced): '{text}' (confidence: {confidence:.2f})")
                         
-                        urls = re.findall(url_pattern, text, re.IGNORECASE)
-                        for url in urls:
+                        found_urls = re.findall(url_pattern, text, re.IGNORECASE)
+                        for url in found_urls:
                             url = url.rstrip('.,;:!?)')
-                            extracted_data.append({
-                                "type": "url",
-                                "content": url,
-                                "description": "URL found in image text (enhanced)",
-                                "confidence": round(confidence, 2)
-                            })
-                        
-                        partial_urls = re.findall(partial_url_pattern, text, re.IGNORECASE)
-                        for url in partial_urls:
-                            url = url.rstrip('.,;:!?)')
-                            full_url = f"https://{url}" if not url.startswith('http') else url
-                            extracted_data.append({
-                                "type": "url",
-                                "content": full_url,
-                                "description": "URL found in image text (enhanced)",
-                                "confidence": round(confidence, 2)
-                            })
+                            if len(url) > 10:
+                                links.append({
+                                    "type": "url",
+                                    "content": url,
+                                    "description": "URL found (enhanced scan)",
+                                    "confidence": round(confidence, 2)
+                                })
+                                print(f"    ✓ Found URL (enhanced): {url}")
         
-        # If still no URLs but we have text, include some text content
-        if not extracted_data and all_text_blocks:
-            combined_text = " ".join(all_text_blocks[:5])  # First 5 blocks
-            if len(combined_text) > 15:
-                extracted_data.append({
-                    "type": "text_content",
-                    "content": combined_text[:300],
-                    "description": "Text content in image (no links found)",
-                    "confidence": 0.8
+        # If we found text but no URLs, include text content
+        if not links and all_text:
+            combined = " ".join(all_text[:3])
+            if len(combined) > 15:
+                links.append({
+                    "type": "text",
+                    "content": combined[:250],
+                    "description": "Text detected (no URLs found)"
                 })
+                print(f"    ℹ No URLs found, returning text content")
     
     except Exception as e:
-        print(f"  Error extracting text/URLs: {e}")
+        print(f"    [ERROR] OCR extraction: {e}")
         import traceback
         traceback.print_exc()
     
-    return extracted_data
+    return links
 
 # --------------------------
 # Routes
 # --------------------------
 @app.route("/images/<filename>")
 def serve_image(filename):
-    """Serve extracted images with proper headers"""
+    """Serve extracted images"""
     try:
         img_path = os.path.join(EXTRACT_FOLDER, filename)
         
         if not os.path.exists(img_path):
-            print(f"Image not found: {img_path}")
             return jsonify({"error": "Image not found"}), 404
         
-        ext = filename.split('.')[-1].lower()
-        mimetype_map = {
-            'png': 'image/png',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'gif': 'image/gif',
-            'bmp': 'image/bmp',
-            'webp': 'image/webp'
-        }
-        mimetype = mimetype_map.get(ext, 'image/png')
-        
-        return send_file(img_path, mimetype=mimetype, as_attachment=False)
+        return send_file(img_path, mimetype='image/png')
     except Exception as e:
-        print(f"Error serving image {filename}: {e}")
+        print(f"[ERROR] Serving image: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
+    print("\n" + "="*70)
+    print("NEW PDF UPLOAD REQUEST")
+    print("="*70)
+    
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     
@@ -228,32 +220,31 @@ def upload_file():
         return jsonify({"error": "No file selected"}), 400
     
     if not file.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Only PDF files are allowed"}), 400
+        return jsonify({"error": "Only PDF files allowed"}), 400
 
-    # Save uploaded PDF
+    # Save PDF
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
-    print(f"\n{'='*60}")
-    print(f"Processing PDF: {file.filename}")
-    print(f"{'='*60}")
+    print(f"\n✓ Saved PDF: {file.filename}")
 
-    # Clear previous images
+    # Clear old images
     for f in os.listdir(EXTRACT_FOLDER):
         try:
             os.remove(os.path.join(EXTRACT_FOLDER, f))
-        except Exception as e:
-            print(f"Error removing old file: {e}")
+        except:
+            pass
 
-    # Open PDF
+    # Process PDF
     pdf = fitz.open(filepath)
     report = []
     total_images = 0
-    total_links_found = 0
+    total_links = 0
 
     for page_num, page in enumerate(pdf, start=1):
         images = page.get_images(full=True)
         page_info = {"page": page_num, "images": []}
-        print(f"\nPage {page_num}: Found {len(images)} images")
+        
+        print(f"\n📄 PAGE {page_num}: {len(images)} image(s)")
 
         for img_index, img in enumerate(images):
             xref = img[0]
@@ -262,33 +253,39 @@ def upload_file():
                 base_image = pdf.extract_image(xref)
                 image_bytes = base_image["image"]
                 
-                # Save as PNG for compatibility
+                # Save as PNG
                 base_name = os.path.splitext(file.filename)[0].replace(" ", "_")
                 filename = f"{base_name}_page{page_num}_img{img_index}.png"
                 img_path = os.path.join(EXTRACT_FOLDER, filename)
 
-                # Convert and save
                 img_pil = Image.open(io.BytesIO(image_bytes))
                 img_pil.save(img_path, 'PNG')
                 total_images += 1
                 
-                print(f"\nImage {img_index}: {filename}")
-                print(f"  Size: {img_pil.size}")
+                print(f"\n  🖼️  Image {img_index}: {filename}")
+                print(f"      Size: {img_pil.size[0]}x{img_pil.size[1]}px")
+                
+                # Get image position on page
+                image_rects = page.get_image_rects(xref)
+                image_area = [0, 0, 0, 0]
+                if image_rects:
+                    rect = image_rects[0]
+                    image_area = [rect.x0, rect.y0, rect.x1, rect.y1]
 
-                # Extract all types of links
+                # SCAN FOR LINKS
                 all_links = []
                 
-                # 1. Extract QR codes and barcodes
-                print("  Scanning for QR codes...")
+                # 1. QR Codes
+                print(f"      Scanning for QR codes...")
                 qr_links = extract_qr_codes(img_path)
                 all_links.extend(qr_links)
                 
-                # 2. Extract text and URLs
-                print("  Scanning for text and URLs...")
+                # 2. Text & URLs
+                print(f"      Scanning for text and URLs...")
                 text_links = extract_text_and_urls(img_path)
                 all_links.extend(text_links)
 
-                # Remove duplicates based on content
+                # Remove duplicates
                 seen = set()
                 unique_links = []
                 for link in all_links:
@@ -296,61 +293,44 @@ def upload_file():
                     if content not in seen:
                         seen.add(content)
                         unique_links.append(link)
-                        total_links_found += 1
 
-                print(f"  Total unique links found: {len(unique_links)}")
+                total_links += len(unique_links)
+                
+                if len(unique_links) > 0:
+                    print(f"      ✅ FOUND {len(unique_links)} LINK(S)!")
+                else:
+                    print(f"      ❌ No links detected")
 
                 page_info["images"].append({
                     "filename": filename,
                     "url": f"{BACKEND_URL}/images/{filename}",
-                    "has_links": len(unique_links) > 0,
-                    "link_count": len(unique_links),
-                    "links": unique_links
+                    "image_area": image_area,
+                    "clickable_links_found": len(unique_links) > 0,
+                    "extracted_links": unique_links
                 })
 
             except Exception as e:
-                print(f"  ERROR processing image: {e}")
+                print(f"  [ERROR] Processing image: {e}")
                 import traceback
                 traceback.print_exc()
-                continue
 
         report.append(page_info)
     
     pdf.close()
     
-    print(f"\n{'='*60}")
-    print(f"SUMMARY:")
-    print(f"  Total images extracted: {total_images}")
-    print(f"  Total links found: {total_links_found}")
-    print(f"{'='*60}\n")
+    print("\n" + "="*70)
+    print(f"COMPLETED: {total_images} images, {total_links} links found")
+    print("="*70 + "\n")
 
-    return jsonify({
-        "success": True,
-        "total_images": total_images,
-        "total_links": total_links_found,
-        "pages": report
-    })
+    return jsonify(report)
 
 @app.route("/")
 def home():
-    return jsonify({"message": "PDF Image Scanner is running", "status": "ok"})
+    return jsonify({"message": "PDF Image Scanner Active", "status": "ok"})
 
 @app.route("/health")
 def health():
     return jsonify({"status": "healthy"})
-
-@app.route("/debug/images")
-def debug_images():
-    """Debug endpoint to list all extracted images"""
-    try:
-        images = os.listdir(EXTRACT_FOLDER)
-        return jsonify({
-            "total": len(images),
-            "images": images,
-            "folder_path": EXTRACT_FOLDER
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
