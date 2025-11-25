@@ -192,21 +192,28 @@ def extract_text_and_urls(img_path):
     return links
 
 # FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
-def extract_pdf_links_for_area(page, image_area):
+
+
+
+def extract_pdf_links_for_area(page, image_area, page_num, slice_index):
     """
-    Extract clickable PDF links that overlap with a given image slice.
+    Extract clickable PDF links that overlap with a given image slice,
+    and print debug info for each slice.
     """
     links = []
-    page_height = float(page.mediabox[3])  # total page height
+    page_height = float(page.mediabox[3])  # total page height in points
+
+    print(f"\n🖼️ Image slice {slice_index} on page {page_num + 1}")
+    print(f"Image area: {image_area}")
 
     for annot in page.obj.get(Name.Annots, []):
-        if annot[Name.Subtype] == Name.Link:
-            rect = annot[Name.Rect]
+        if annot.get(Name.Subtype) == Name.Link:
+            rect = annot.get(Name.Rect)
             action = annot.get(Name.A)
             if action and Name.URI in action:
                 uri = action[Name.URI]
 
-                # Flip Y coordinates to match image slicing orientation
+                # Flip Y-axis to match image slicing orientation
                 flipped_bbox = [
                     float(rect[0]),
                     page_height - float(rect[3]),
@@ -223,13 +230,21 @@ def extract_pdf_links_for_area(page, image_area):
                 )
 
                 if overlaps:
-                    links.append({
+                    link_info = {
                         "content": str(uri),
                         "type": "pdf_structural",
                         "bbox": flipped_bbox
-                    })
+                    }
+                    links.append(link_info)
+                    print(f"✅ Matched link: {link_info['content']} at {link_info['bbox']}")
+
+    if not links:
+        print("❌ No links matched this slice.")
 
     return links
+
+
+
 # --------------------------
 # Routes
 # --------------------------
