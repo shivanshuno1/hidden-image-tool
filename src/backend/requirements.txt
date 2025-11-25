@@ -4,3 +4,5 @@ Flask-Cors
 pikepdf
 Pillow
 PyMuPDF
+easyocr
+opencv-python
