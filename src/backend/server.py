@@ -198,6 +198,138 @@ def extract_pdf_links_for_area(page, image_area, slice_index):
     print(f"Found {len(links)} matching links for slice {slice_index}")
     return links
 
+# ===== DIAGNOSTIC ENDPOINTS =====
+@app.route("/version")
+def version():
+    """Check backend version and PyMuPDF status"""
+    try:
+        import fitz
+        pymupdf_version = fitz.__doc__.split(' ')[1] if fitz.__doc__ else "unknown"
+        return jsonify({
+            "backend_version": "2.0",
+            "pymupdf_version": pymupdf_version,
+            "status": "✅ PyMuPDF is working",
+            "endpoints": ["/upload", "/debug-upload", "/simple-test", "/diagnostics", "/test-pymupdf", "/version"]
+        })
+    except ImportError as e:
+        return jsonify({
+            "backend_version": "2.0", 
+            "pymupdf_status": "❌ NOT INSTALLED",
+            "error": str(e)
+        })
+
+@app.route("/diagnostics")
+def diagnostics():
+    """Check what packages are installed"""
+    import pkg_resources
+    import sys
+    
+    installed_packages = []
+    for package in pkg_resources.working_set:
+        installed_packages.append(f"{package.project_name}=={package.version}")
+    
+    # Check specifically for PyMuPDF
+    try:
+        import fitz
+        pymupdf_status = "✅ INSTALLED"
+        pymupdf_version = fitz.__doc__.split(' ')[1] if fitz.__doc__ else "unknown"
+    except ImportError as e:
+        pymupdf_status = f"❌ NOT INSTALLED: {e}"
+        pymupdf_version = "N/A"
+    
+    return jsonify({
+        "python_version": sys.version,
+        "pymupdf_status": pymupdf_status,
+        "pymupdf_version": pymupdf_version,
+        "installed_packages": installed_packages
+    })
+
+@app.route("/test-pymupdf")
+def test_pymupdf():
+    """Test if PyMuPDF is working"""
+    try:
+        import fitz
+        # Create a simple PDF in memory to test
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 50), "PyMuPDF Test - Working!")
+        pdf_bytes = doc.write()
+        doc.close()
+        
+        return jsonify({
+            "status": "✅ PyMuPDF is working!",
+            "version": fitz.__doc__.split(' ')[1] if fitz.__doc__ else "unknown",
+            "test": "Created PDF successfully"
+        })
+    except ImportError as e:
+        return jsonify({
+            "status": "❌ PyMuPDF not installed",
+            "error": str(e)
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "status": "⚠️ PyMuPDF installed but has issues",
+            "error": str(e)
+        }), 500
+
+@app.route("/simple-test", methods=["POST"])
+def simple_test():
+    """Super simple test - just return the links as JSON"""
+    print("🔍 SIMPLE-TEST: Starting...")
+    
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files["file"]
+    print(f"📁 File received: {file.filename}")
+    
+    # Save file temporarily
+    filepath = os.path.join(UPLOAD_FOLDER, "test_file.pdf")
+    file.save(filepath)
+    print(f"💾 File saved: {filepath}")
+    
+    try:
+        pdf = fitz.open(filepath)
+        print(f"📄 PDF opened successfully, pages: {len(pdf)}")
+        
+        results = []
+        
+        for page_num, page in enumerate(pdf, start=1):
+            print(f"🔍 Checking page {page_num}...")
+            links = page.get_links()
+            print(f"📊 Found {len(links)} links on page {page_num}")
+            
+            page_links = []
+            for link in links:
+                print(f"   Link: {link}")
+                if link.get('kind') == 2 and link.get('uri'):
+                    page_links.append({
+                        "uri": link.get('uri'),
+                        "position": {
+                            "x0": link['from'].x0,
+                            "y0": link['from'].y0,
+                            "x1": link['from'].x1, 
+                            "y1": link['from'].y1
+                        }
+                    })
+            
+            results.append({
+                "page": page_num,
+                "total_links": len(links),
+                "uri_links": page_links
+            })
+        
+        pdf.close()
+        print(f"🎉 SIMPLE-TEST: Returning {sum(len(p['uri_links']) for p in results)} URI links")
+        return jsonify({"success": True, "results": results})
+        
+    except Exception as e:
+        print(f"💥 ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+# ===== MAIN ENDPOINTS =====
 @app.route("/images/<filename>")
 def serve_image(filename):
     try:
@@ -400,6 +532,7 @@ def upload_file():
     print("="*60)
     
     return jsonify(report)
+
 @app.route("/debug-upload", methods=["POST"])
 def debug_upload():
     """Debug endpoint to see exactly what's in the PDF"""
@@ -467,117 +600,6 @@ def debug_upload():
     
     pdf.close()
     return jsonify(debug_info)
-
-
-@app.route("/diagnostics")
-def diagnostics():
-    """Check what packages are installed"""
-    import pkg_resources
-    import sys
-    
-    installed_packages = []
-    for package in pkg_resources.working_set:
-        installed_packages.append(f"{package.project_name}=={package.version}")
-    
-    # Check specifically for PyMuPDF
-    try:
-        import fitz
-        pymupdf_status = "✅ INSTALLED"
-        pymupdf_version = fitz.__doc__.split(' ')[1] if fitz.__doc__ else "unknown"
-    except ImportError as e:
-        pymupdf_status = f"❌ NOT INSTALLED: {e}"
-        pymupdf_version = "N/A"
-    
-    return jsonify({
-        "python_version": sys.version,
-        "pymupdf_status": pymupdf_status,
-        "pymupdf_version": pymupdf_version,
-        "installed_packages": installed_packages
-    })
-
-@app.route("/test-pymupdf")
-def test_pymupdf():
-    """Test if PyMuPDF is working"""
-    try:
-        import fitz
-        # Create a simple PDF in memory to test
-        doc = fitz.open()
-        page = doc.new_page()
-        page.insert_text((50, 50), "PyMuPDF Test - Working!")
-        pdf_bytes = doc.write()
-        doc.close()
-        
-        return jsonify({
-            "status": "✅ PyMuPDF is working!",
-            "version": fitz.__doc__.split(' ')[1] if fitz.__doc__ else "unknown"
-        })
-    except ImportError as e:
-        return jsonify({
-            "status": "❌ PyMuPDF not installed",
-            "error": str(e)
-        }), 500
-    except Exception as e:
-        return jsonify({
-            "status": "⚠️ PyMuPDF installed but has issues",
-            "error": str(e)
-        }), 500
-
-@app.route("/simple-test", methods=["POST"])
-def simple_test():
-    """Super simple test - just return the links as JSON"""
-    print("🔍 SIMPLE-TEST: Starting...")
-    
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    
-    file = request.files["file"]
-    print(f"📁 File received: {file.filename}")
-    
-    # Save file temporarily
-    filepath = os.path.join(UPLOAD_FOLDER, "test_file.pdf")
-    file.save(filepath)
-    print(f"💾 File saved: {filepath}")
-    
-    try:
-        pdf = fitz.open(filepath)
-        print(f"📄 PDF opened successfully, pages: {len(pdf)}")
-        
-        results = []
-        
-        for page_num, page in enumerate(pdf, start=1):
-            print(f"🔍 Checking page {page_num}...")
-            links = page.get_links()
-            print(f"📊 Found {len(links)} links on page {page_num}")
-            
-            page_links = []
-            for link in links:
-                print(f"   Link: {link}")
-                if link.get('kind') == 2 and link.get('uri'):
-                    page_links.append({
-                        "uri": link.get('uri'),
-                        "position": {
-                            "x0": link['from'].x0,
-                            "y0": link['from'].y0,
-                            "x1": link['from'].x1, 
-                            "y1": link['from'].y1
-                        }
-                    })
-            
-            results.append({
-                "page": page_num,
-                "total_links": len(links),
-                "uri_links": page_links
-            })
-        
-        pdf.close()
-        print(f"🎉 SIMPLE-TEST: Returning {sum(len(p['uri_links']) for p in results)} URI links")
-        return jsonify({"success": True, "results": results})
-        
-    except Exception as e:
-        print(f"💥 ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
     
 @app.route("/")
 def home():
