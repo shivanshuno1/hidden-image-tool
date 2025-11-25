@@ -9,8 +9,8 @@ import easyocr
 import re
 import io
 import cv2
-from pikepdf import Pdf, Name
-
+import signal
+import sys
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -23,56 +23,43 @@ os.makedirs(EXTRACT_FOLDER, exist_ok=True)
 
 BACKEND_URL = "https://hidden-backend-1.onrender.com"
 
-# Initialize EasyOCR reader once (this takes time on first run)
 print("Initializing EasyOCR...")
 reader = easyocr.Reader(['en'], gpu=False)
 print("EasyOCR ready!")
 
-# --------------------------
-# Helper functions
-# --------------------------
+def handle_sigint(sig, frame):
+    print("Shutting down gracefully...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_sigint)
+
 def preprocess_image_for_ocr(img_path):
-    """Preprocess image for better OCR results."""
     try:
         img = cv2.imread(img_path)
         if img is None:
             return None
-        
-        # Increase size for better text detection
         scale = 2
         img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        
-        # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Apply adaptive thresholding
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                       cv2.THRESH_BINARY, 11, 2)
-        
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         return binary
     except Exception as e:
-        print(f"    [ERROR] Preprocessing failed: {e}")
+        print(f"Preprocessing failed: {e}")
         return None
 
 def extract_qr_codes(img_path):
-    """Detect QR codes and barcodes in the image."""
     links = []
     try:
-        # Try with PIL
         image = Image.open(img_path)
         qr_results = decode(image)
-        
-        # If nothing found, try with OpenCV preprocessing
         if not qr_results:
             img_cv = cv2.imread(img_path)
             if img_cv is not None:
                 gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
                 qr_results = decode(gray)
-                
                 if not qr_results:
                     _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
                     qr_results = decode(binary)
-        
         for qr in qr_results:
             try:
                 content = qr.data.decode("utf-8").strip()
@@ -82,60 +69,48 @@ def extract_qr_codes(img_path):
                         "content": content,
                         "description": f"{qr.type} detected"
                     })
-                    print(f"    ✓ Found {qr.type}: {content[:50]}...")
+                    print(f"Found {qr.type}: {content[:50]}...")
             except Exception as e:
-                print(f"    [ERROR] Decoding QR: {e}")
+                print(f"Decoding QR: {e}")
     except Exception as e:
-        print(f"    [ERROR] QR extraction: {e}")
-    
+        print(f"QR extraction: {e}")
     return links
 
 def extract_text_and_urls(img_path):
-    """Use EasyOCR to extract text and find URLs."""
     links = []
-    
+    all_text = []
     try:
-        print(f"    Running OCR on image...")
-        
-        # Read image
-        image = Image.open(img_path)
+        print("Running OCR on image...")
+        image = Image.open(img_path).convert("RGB")
         img_array = np.array(image)
-        
-        # Run OCR with bounding boxes
         ocr_results = reader.readtext(img_array, detail=1, paragraph=False)
+        print(f"Found {len(ocr_results)} text blocks")
         
-        print(f"    Found {len(ocr_results)} text blocks")
-        
-        all_text = []
-        
-        # URL patterns
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
         www_pattern = r'www\.[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}'
         
+        def clean_url(u):
+            return u.strip().rstrip('.,;:!?)"]\'')
+        
         for bbox, text, confidence in ocr_results:
             text = text.strip()
-            
-            if text and confidence > 0.25:  # Lower threshold to catch more text
+            if text and confidence > 0.3:
                 all_text.append(text)
-                print(f"    OCR: '{text}' (confidence: {confidence:.2f})")
+                print(f"OCR: '{text}' (confidence: {confidence:.2f})")
                 
-                # Find full URLs
-                found_urls = re.findall(url_pattern, text, re.IGNORECASE)
-                for url in found_urls:
-                    url = url.rstrip('.,;:!?)')
-                    if len(url) > 10:  # Filter out noise
+                for url in re.findall(url_pattern, text, re.IGNORECASE):
+                    url = clean_url(url)
+                    if len(url) > 10:
                         links.append({
                             "type": "url",
                             "content": url,
                             "description": "URL found in image text",
                             "confidence": round(confidence, 2)
                         })
-                        print(f"    ✓ Found URL: {url}")
+                        print(f"Found URL: {url}")
                 
-                # Find www URLs
-                found_www = re.findall(www_pattern, text, re.IGNORECASE)
-                for url in found_www:
-                    url = url.rstrip('.,;:!?)')
+                for url in re.findall(www_pattern, text, re.IGNORECASE):
+                    url = clean_url(url)
                     full_url = f"https://{url}"
                     links.append({
                         "type": "url",
@@ -143,27 +118,21 @@ def extract_text_and_urls(img_path):
                         "description": "URL found in image text",
                         "confidence": round(confidence, 2)
                     })
-                    print(f"    ✓ Found www URL: {full_url}")
+                    print(f"Found www URL: {full_url}")
         
-        # If no links found, try with preprocessed image
-        if not links and len(all_text) == 0:
-            print(f"    No text found, trying preprocessed image...")
+        if not links and not all_text:
+            print("No text found, trying preprocessed image...")
             preprocessed = preprocess_image_for_ocr(img_path)
-            
             if preprocessed is not None:
                 ocr_results = reader.readtext(preprocessed, detail=1, paragraph=False)
-                print(f"    Preprocessed OCR found {len(ocr_results)} text blocks")
-                
+                print(f"Preprocessed OCR found {len(ocr_results)} text blocks")
                 for bbox, text, confidence in ocr_results:
                     text = text.strip()
-                    
-                    if text and confidence > 0.25:
+                    if text and confidence > 0.3:
                         all_text.append(text)
-                        print(f"    OCR (enhanced): '{text}' (confidence: {confidence:.2f})")
-                        
-                        found_urls = re.findall(url_pattern, text, re.IGNORECASE)
-                        for url in found_urls:
-                            url = url.rstrip('.,;:!?)')
+                        print(f"OCR (enhanced): '{text}' (confidence: {confidence:.2f})")
+                        for url in re.findall(url_pattern, text, re.IGNORECASE):
+                            url = clean_url(url)
                             if len(url) > 10:
                                 links.append({
                                     "type": "url",
@@ -171,117 +140,93 @@ def extract_text_and_urls(img_path):
                                     "description": "URL found (enhanced scan)",
                                     "confidence": round(confidence, 2)
                                 })
-                                print(f"    ✓ Found URL (enhanced): {url}")
+                                print(f"Found URL (enhanced): {url}")
         
-        # If we found text but no URLs, include text content
         if not links and all_text:
             combined = " ".join(all_text[:3])
-            # MODIFIED: Removed the length filter entirely to capture any detected text
             links.append({
                 "type": "text",
                 "content": combined[:250],
                 "description": "Text detected (no URLs found)"
             })
-            print(f"    ℹ No URLs found, returning text content: {combined}")
-    
+            print(f"No URLs found, returning text content: {combined}")
+        
+        seen = set()
+        unique_links = []
+        for link in links:
+            if link["content"] not in seen:
+                seen.add(link["content"])
+                unique_links.append(link)
+        return unique_links
     except Exception as e:
-        print(f"    [ERROR] OCR extraction: {e}")
+        print(f"OCR extraction: {e}")
         import traceback
         traceback.print_exc()
-    
-    return links
+        return []
 
-# FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
-
-
-
-def extract_pdf_links_for_area(page, image_area, page_num, slice_index):
-    """
-    Extract clickable PDF links that overlap with a given image slice,
-    and print debug info for each slice.
-    """
+def extract_pdf_links_for_area(page, image_area, slice_index):
     links = []
-    page_height = float(page.mediabox[3])  # total page height in points
-
-    print(f"\n🖼️ Image slice {slice_index} on page {page_num + 1}")
-    print(f"Image area: {image_area}")
-
-    for annot in page.obj.get(Name.Annots, []):
-        if annot.get(Name.Subtype) == Name.Link:
-            rect = annot.get(Name.Rect)
-            action = annot.get(Name.A)
-            if action and Name.URI in action:
-                uri = action[Name.URI]
-
-                # Flip Y-axis to match image slicing orientation
-                flipped_bbox = [
-                    float(rect[0]),
-                    page_height - float(rect[3]),
-                    float(rect[2]),
-                    page_height - float(rect[1])
-                ]
-
-                # Overlap check
-                overlaps = not (
-                    flipped_bbox[2] < image_area[0] or
-                    flipped_bbox[0] > image_area[2] or
-                    flipped_bbox[3] < image_area[1] or
-                    flipped_bbox[1] > image_area[3]
-                )
-
-                if overlaps:
-                    link_info = {
-                        "content": str(uri),
-                        "type": "pdf_structural",
-                        "bbox": flipped_bbox
-                    }
-                    links.append(link_info)
-                    print(f"✅ Matched link: {link_info['content']} at {link_info['bbox']}")
-
-    if not links:
-        print("❌ No links matched this slice.")
-
+    link_dicts = page.get_links()
+    
+    print(f"Slice {slice_index} area: {image_area}")
+    print(f"Found {len(link_dicts)} total links on page")
+    
+    def overlaps(a, b):
+        return not (a[2] <= b[0] or a[0] >= b[2] or a[3] <= b[1] or a[1] >= b[3])
+    
+    for i, ld in enumerate(link_dicts):
+        rect = ld.get("from")
+        uri = ld.get("uri")
+        kind = ld.get("kind")
+        
+        if rect and uri and kind == 2:
+            bbox = [rect.x0, rect.y0, rect.x1, rect.y1]
+            print(f"Link {i}: {uri} at {bbox}")
+            print(f"Comparing with image area: {image_area}")
+            
+            if overlaps(bbox, image_area):
+                links.append({
+                    "content": uri,
+                    "type": "pdf_structural",
+                    "bbox": bbox,
+                    "description": "PDF structural link"
+                })
+                print(f"✅ Matched link: {uri}")
+            else:
+                print(f"❌ No overlap - Link: {bbox} vs Image: {image_area}")
+    
+    print(f"Found {len(links)} matching links for slice {slice_index}")
     return links
 
-
-
-# --------------------------
-# Routes
-# --------------------------
 @app.route("/images/<filename>")
 def serve_image(filename):
-    """Serve extracted images"""
     try:
         img_path = os.path.join(EXTRACT_FOLDER, filename)
-        
         if not os.path.exists(img_path):
             return jsonify({"error": "Image not found"}), 404
-        
         return send_file(img_path, mimetype='image/png')
     except Exception as e:
-        print(f"[ERROR] Serving image: {e}")
+        print(f"Serving image: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
-    print("\n" + "="*70)
-    print("NEW PDF UPLOAD REQUEST")
-    print("="*70)
+    print("\n" + "="*60)
+    print("🚀 NEW PDF UPLOAD REQUEST - FIXED VERSION")
+    print("="*60)
     
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     
     file = request.files["file"]
-    if file.filename == '':
+    if file.filename == "":
         return jsonify({"error": "No file selected"}), 400
-    
     if not file.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Only PDF files allowed"}), 400
 
-    # Save PDF
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
-    print(f"\n✓ Saved PDF: {file.filename}")
+    print(f"📁 Saved PDF: {file.filename}")
 
     # Clear old images
     for f in os.listdir(EXTRACT_FOLDER):
@@ -290,78 +235,147 @@ def upload_file():
         except:
             pass
 
-    # Process PDF
     pdf = fitz.open(filepath)
     report = []
     total_images = 0
     total_links = 0
 
     for page_num, page in enumerate(pdf, start=1):
-        images = page.get_images(full=True)
         page_info = {"page": page_num, "images": []}
         
-        print(f"\n📄 PAGE {page_num}: {len(images)} image(s)")
-
+        print(f"\n📄 PROCESSING PAGE {page_num}")
+        print("-" * 40)
+        
+        # STEP 1: Get ALL PDF links (this works as your test shows)
+        all_pdf_links = page.get_links()
+        print(f"🔍 Found {len(all_pdf_links)} total links on page {page_num}")
+        
+        # Filter only URI links (kind 2)
+        uri_links = [ld for ld in all_pdf_links if ld.get('kind') == 2 and ld.get('uri')]
+        print(f"🌐 Found {len(uri_links)} URI links")
+        
+        # STEP 2: Process each URI link and create images from link areas
+        for link_idx, ld in enumerate(uri_links):
+            rect = ld.get("from")
+            uri = ld.get("uri")
+            
+            print(f"\n  🔗 Processing URI Link {link_idx}:")
+            print(f"     URL: {uri}")
+            print(f"     Position: [{rect.x0:.1f}, {rect.y0:.1f}, {rect.x1:.1f}, {rect.y1:.1f}]")
+            
+            # Create image from link area
+            base_name = os.path.splitext(file.filename)[0].replace(" ", "_")
+            filename = f"{base_name}_page{page_num}_link{link_idx}.png"
+            img_path = os.path.join(EXTRACT_FOLDER, filename)
+            
+            try:
+                # Render the link area as high-quality image with padding
+                padding = 5
+                clip_rect = fitz.Rect(
+                    max(0, rect.x0 - padding),
+                    max(0, rect.y0 - padding),
+                    min(page.rect.width, rect.x1 + padding),
+                    min(page.rect.height, rect.y1 + padding)
+                )
+                
+                # High quality rendering
+                mat = fitz.Matrix(2, 2)  # 2x zoom for better quality
+                pix = page.get_pixmap(matrix=mat, clip=clip_rect)
+                pix.save(img_path)
+                total_images += 1
+                
+                print(f"     ✅ Saved link area image: {filename}")
+                print(f"     📐 Image size: {pix.width} x {pix.height} pixels")
+                
+                # STEP 3: Create the PDF structural link entry (THIS IS WHAT WE NEED!)
+                pdf_link = {
+                    "content": uri,
+                    "type": "pdf_structural",
+                    "bbox": [rect.x0, rect.y0, rect.x1, rect.y1],
+                    "description": f"PDF structural link"
+                }
+                
+                # Also scan for QR codes and OCR (optional)
+                qr_links = extract_qr_codes(img_path)
+                ocr_links = extract_text_and_urls(img_path)
+                
+                # Combine all links - PDF structural link is MOST IMPORTANT
+                all_links = [pdf_link] + qr_links + ocr_links
+                
+                # Deduplicate
+                seen = set()
+                unique_links = []
+                for link in all_links:
+                    content = link["content"]
+                    if content not in seen:
+                        seen.add(content)
+                        unique_links.append(link)
+                
+                total_links += len(unique_links)
+                
+                # Log results
+                if unique_links:
+                    print(f"     ✅ FOUND {len(unique_links)} LINK(S)!")
+                    for link in unique_links:
+                        print(f"        - {link['type']}: {link['content'][:60]}...")
+                else:
+                    print(f"     ❌ No additional links detected")
+                
+                # Add to page results - THIS IS WHAT GOES TO FRONTEND
+                page_info["images"].append({
+                    "filename": filename,
+                    "url": f"{BACKEND_URL}/images/{filename}",
+                    "image_area": [rect.x0, rect.y0, rect.x1, rect.y1],
+                    "clickable_links_found": len(unique_links) > 0,
+                    "extracted_links": unique_links
+                })
+                
+            except Exception as e:
+                print(f"     💥 ERROR processing link area: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # STEP 4: Also process any actual embedded images (if they exist)
+        images = page.get_images(full=True)
+        print(f"\n  🖼️  Found {len(images)} embedded images on page")
+        
         for img_index, img in enumerate(images):
             xref = img[0]
             try:
-                # Extract image
                 base_image = pdf.extract_image(xref)
                 image_bytes = base_image["image"]
-                
-                # Save as PNG
                 base_name = os.path.splitext(file.filename)[0].replace(" ", "_")
                 filename = f"{base_name}_page{page_num}_img{img_index}.png"
                 img_path = os.path.join(EXTRACT_FOLDER, filename)
 
                 img_pil = Image.open(io.BytesIO(image_bytes))
-                img_pil.save(img_path, 'PNG')
+                img_pil.save(img_path, "PNG")
                 total_images += 1
-                
-                print(f"\n  🖼️  Image {img_index}: {filename}")
-                print(f"      Size: {img_pil.size[0]}x{img_pil.size[1]}px")
-                
-                # Get image position on page
+
                 image_rects = page.get_image_rects(xref)
                 image_area = [0, 0, 0, 0]
                 if image_rects:
                     rect = image_rects[0]
-                    # Store image area as [x0, y0, x1, y1] for fitz.Rect comparison
                     image_area = [rect.x0, rect.y0, rect.x1, rect.y1]
 
-                # SCAN FOR LINKS
-                all_links = []
-                
-                # 1. STRUCTURAL PDF LINKS (COMPREHENSIVE)
-                print(f"      Scanning for structural PDF links...")
-                pdf_links = extract_pdf_links_for_area(page, image_area)
-                all_links.extend(pdf_links)
-                
-                # 2. QR Codes (Existing)
-                print(f"      Scanning for QR codes...")
-                qr_links = extract_qr_codes(img_path)
-                all_links.extend(qr_links)
-                
-                # 3. Text & URLs (Existing - Highly Aggressive OCR)
-                print(f"      Scanning for text and URLs...")
-                text_links = extract_text_and_urls(img_path)
-                all_links.extend(text_links)
+                print(f"     Processing embedded image {img_index} at {image_area}")
 
-                # Remove duplicates
+                # Extract links from embedded image
+                pdf_links = extract_pdf_links_for_area(page, image_area, img_index)
+                qr_links = extract_qr_codes(img_path)
+                ocr_links = extract_text_and_urls(img_path)
+
+                all_links = pdf_links + qr_links + ocr_links
+                
                 seen = set()
                 unique_links = []
                 for link in all_links:
-                    content = link['content']
+                    content = link["content"]
                     if content not in seen:
                         seen.add(content)
                         unique_links.append(link)
 
                 total_links += len(unique_links)
-                
-                if len(unique_links) > 0:
-                    print(f"      ✅ FOUND {len(unique_links)} LINK(S)!")
-                else:
-                    print(f"      ❌ No links detected")
 
                 page_info["images"].append({
                     "filename": filename,
@@ -372,20 +386,88 @@ def upload_file():
                 })
 
             except Exception as e:
-                print(f"  [ERROR] Processing image: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"     💥 ERROR processing embedded image: {e}")
 
         report.append(page_info)
-    
+
     pdf.close()
     
-    print("\n" + "="*70)
-    print(f"COMPLETED: {total_images} images, {total_links} links found")
-    print("="*70 + "\n")
-
+    print(f"\n" + "="*60)
+    print(f"🎉 SCAN COMPLETED!")
+    print(f"📊 Total Images Created: {total_images}")
+    print(f"🔗 Total Links Found: {total_links}")
+    print(f"📄 Total Pages Processed: {len(report)}")
+    print("="*60)
+    
     return jsonify(report)
+@app.route("/debug-upload", methods=["POST"])
+def debug_upload():
+    """Debug endpoint to see exactly what's in the PDF"""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
 
+    filepath = os.path.join(UPLOAD_FOLDER, "debug_" + file.filename)
+    file.save(filepath)
+    
+    pdf = fitz.open(filepath)
+    debug_info = {
+        "file_info": {
+            "name": file.filename,
+            "size": os.path.getsize(filepath)
+        },
+        "pages": []
+    }
+    
+    for page_num, page in enumerate(pdf, start=1):
+        page_info = {
+            "page_number": page_num,
+            "page_size": {
+                "width": page.rect.width,
+                "height": page.rect.height
+            },
+            "links": [],
+            "images_found": 0,
+            "text_content": []
+        }
+        
+        # Get ALL links
+        links = page.get_links()
+        print(f"\n=== PAGE {page_num} DEBUG ===")
+        print(f"Total links found: {len(links)}")
+        
+        for i, link in enumerate(links):
+            print(f"Link {i}: {link}")
+            if link.get('kind') == 2 and link.get('uri'):  # URI links
+                rect = link.get('from')
+                page_info["links"].append({
+                    "link_number": i,
+                    "uri": link.get('uri'),
+                    "position": {
+                        "x0": rect.x0,
+                        "y0": rect.y0,
+                        "x1": rect.x1, 
+                        "y1": rect.y1
+                    },
+                    "area": f"{rect.x0},{rect.y0} to {rect.x1},{rect.y1}"
+                })
+        
+        # Check images
+        images = page.get_images()
+        page_info["images_found"] = len(images)
+        print(f"Images found: {len(images)}")
+        
+        for img_index, img in enumerate(images):
+            print(f"Image {img_index}: {img}")
+        
+        debug_info["pages"].append(page_info)
+    
+    pdf.close()
+    return jsonify(debug_info)
+    
 @app.route("/")
 def home():
     return jsonify({"message": "PDF Image Scanner Active", "status": "ok"})

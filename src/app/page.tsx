@@ -10,7 +10,7 @@ type PageInfo = {
   images: Array<{
     filename: string;
     url: string;
-    clickable_link_found: boolean;
+    clickable_links_found: boolean;
   }>;
 };
 
