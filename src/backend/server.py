@@ -9,6 +9,8 @@ import easyocr
 import re
 import io
 import cv2
+from pikepdf import Pdf, Name
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -192,24 +194,28 @@ def extract_text_and_urls(img_path):
 # FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area):
     links = []
-    for link in page.get_links():
-        if "uri" in link:
-            bbox = link["from"]
+    if Name.Annots in page.obj:
+        for annot in page.obj[Name.Annots]:
+            if annot[Name.Subtype] == Name.Link:
+                rect = annot[Name.Rect]
+                action = annot.get(Name.A)
+                if action and Name.URI in action:
+                    uri = action[Name.URI]
 
-            # Overlap check instead of full containment
-            overlaps = not (
-                bbox[2] < image_area[0] or
-                bbox[0] > image_area[2] or
-                bbox[3] < image_area[1] or
-                bbox[1] > image_area[3]
-            )
+                    # Simple overlap check
+                    overlaps = not (
+                        rect[2] < image_area[0] or
+                        rect[0] > image_area[2] or
+                        rect[3] < image_area[1] or
+                        rect[1] > image_area[3]
+                    )
 
-            if overlaps:
-                links.append({
-                    "content": link["uri"],
-                    "type": "pdf_structural",  # matches your frontend getLinkLabel logic
-                    "bbox": bbox
-                })
+                    if overlaps:
+                        links.append({
+                            "content": uri,
+                            "type": "pdf_structural",
+                            "bbox": rect
+                        })
     return links
 
 # --------------------------
