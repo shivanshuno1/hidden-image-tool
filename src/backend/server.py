@@ -194,12 +194,20 @@ def extract_pdf_links_for_area(page, image_area):
     links = []
     for link in page.get_links():
         if "uri" in link:
-            bbox = link["from"]  # [x0, y0, x1, y1]
-            if (bbox[0] >= image_area[0] and bbox[2] <= image_area[2] and
-                bbox[1] >= image_area[1] and bbox[3] <= image_area[3]):
+            bbox = link["from"]
+
+            # Overlap check instead of full containment
+            overlaps = not (
+                bbox[2] < image_area[0] or
+                bbox[0] > image_area[2] or
+                bbox[3] < image_area[1] or
+                bbox[1] > image_area[3]
+            )
+
+            if overlaps:
                 links.append({
                     "content": link["uri"],
-                    "type": "pdf-structural",
+                    "type": "pdf_structural",  # matches your frontend getLinkLabel logic
                     "bbox": bbox
                 })
     return links
