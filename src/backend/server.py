@@ -193,31 +193,43 @@ def extract_text_and_urls(img_path):
 
 # FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
 def extract_pdf_links_for_area(page, image_area):
+    """
+    Extract clickable PDF links that overlap with a given image slice.
+    """
     links = []
-    if Name.Annots in page.obj:
-        for annot in page.obj[Name.Annots]:
-            if annot[Name.Subtype] == Name.Link:
-                rect = annot[Name.Rect]
-                action = annot.get(Name.A)
-                if action and Name.URI in action:
-                    uri = action[Name.URI]
+    page_height = float(page.mediabox[3])  # total page height
 
-                    # Simple overlap check
-                    overlaps = not (
-                        rect[2] < image_area[0] or
-                        rect[0] > image_area[2] or
-                        rect[3] < image_area[1] or
-                        rect[1] > image_area[3]
-                    )
+    for annot in page.obj.get(Name.Annots, []):
+        if annot[Name.Subtype] == Name.Link:
+            rect = annot[Name.Rect]
+            action = annot.get(Name.A)
+            if action and Name.URI in action:
+                uri = action[Name.URI]
 
-                    if overlaps:
-                        links.append({
-                            "content": uri,
-                            "type": "pdf_structural",
-                            "bbox": rect
-                        })
+                # Flip Y coordinates to match image slicing orientation
+                flipped_bbox = [
+                    float(rect[0]),
+                    page_height - float(rect[3]),
+                    float(rect[2]),
+                    page_height - float(rect[1])
+                ]
+
+                # Overlap check
+                overlaps = not (
+                    flipped_bbox[2] < image_area[0] or
+                    flipped_bbox[0] > image_area[2] or
+                    flipped_bbox[3] < image_area[1] or
+                    flipped_bbox[1] > image_area[3]
+                )
+
+                if overlaps:
+                    links.append({
+                        "content": str(uri),
+                        "type": "pdf_structural",
+                        "bbox": flipped_bbox
+                    })
+
     return links
-
 # --------------------------
 # Routes
 # --------------------------
