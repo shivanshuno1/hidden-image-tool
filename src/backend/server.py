@@ -190,114 +190,20 @@ def extract_text_and_urls(img_path):
     return links
 
 # FINAL MODIFIED HELPER FUNCTION TO EXTRACT ALL PDF STRUCTURAL ACTIONS
-def extract_pdf_links_for_area(page, image_area_rect):
-    """Detects ALL PDF Annotations that overlap with the image's area by inspecting raw action dictionaries."""
+def extract_pdf_links_for_area(page, image_area):
     links = []
-    
-    from fitz import Rect 
-    image_rect = Rect(image_area_rect)
-
-    print(f"      Scanning for ALL structural PDF links/actions (RAW ANNOTATION DICT INSPECTION) over area: {image_rect.x0:.0f}, {image_rect.y0:.0f}...")
-    
-    # Iterate over ALL annotations on the page
-    for annot in page.annots():
-        link_rect = annot.rect
-        
-        # Check for intersection
-        if not link_rect.intersects(image_rect):
-            continue
-        
-        content = None
-        link_type = None
-
-        # 1. Inspect Raw Annotation Dictionary for Action (/A) key
-        annot_info = annot.info
-        if 'A' in annot_info:
-            action_dict = annot.info['A']
-            action_type = action_dict.get('S')
-
-            if action_type == '/URI' and 'URI' in action_dict:
-                content = action_dict['URI']
-                link_type = "pdf_raw_uri_action"
-            elif action_type == '/Launch' and 'F' in action_dict:
-                content = f"File Launch: {action_dict['F']}"
-                link_type = "pdf_raw_file_launch"
-            elif action_type == '/JavaScript' and 'JS' in action_dict:
-                content = f"Raw JS Action: {action_dict['JS'].strip()[:100]}..."
-                link_type = "pdf_raw_js_action"
-            elif action_type == '/Named' and 'N' in action_dict:
-                 content = f"Named Action: {action_dict['N']}"
-                 link_type = "pdf_raw_named_action"
-        
-        # 2. Fallback: Check high-level attributes (in case the raw dictionary is formatted differently)
-        if not content:
-            if annot.uri: 
-                content = annot.uri
-                link_type = "pdf_uri_link"
-            elif annot.dest:
-                content = f"Internal PDF Destination: {annot.dest}"
-                link_type = "pdf_internal_link"
-            elif annot.script:
-                content = f"Script Annotation: {annot.script.strip()[:100]}..."
-                link_type = "pdf_script_annotation"
-            
-            # 3. Final Fallback: Check Widget Actions explicitly
-            elif annot.field_name and annot.a:
-                action = annot.a
-                if action.n == "/URI" and action.uri:
-                    content = action.uri
-                    link_type = "pdf_widget_uri_action"
-                elif action.n == "/JavaScript" and action.js:
-                    content = f"Widget JS Action: {action.js.strip()[:100]}..."
-                    link_type = "pdf_widget_js_action"
-
-        
-        if content and link_type:
-            # Filter out generic self-referencing internal links
-            if link_type == "pdf_internal_link" and isinstance(annot.dest, list) and annot.dest[0] == page.number:
-                continue
-                 
-            links.append({
-                "type": link_type,
-                "content": content,
-                "description": f"Structural {link_type} found on PDF page",
-                "confidence": 1.0 
-            })
-            print(f"      ✅ Found Structural Link: {content[:50]}...")
-    
-    # -------------------------------------------------------------
-    # NEW: Raw PDF Object Search (Final Attempt to find hidden URLs)
-    # -------------------------------------------------------------
-    # This is a brute-force heuristic. It is disabled by default to prevent false positives, 
-    # but kept here as the absolute last resort search method.
-    
-    # url_pattern = r'(https?|mailto|www)\:\/\/[\S]+'
-    
-    # doc = page.parent
-    # for xref in range(1, doc.xref_length()):
-    #     try:
-    #         # Get raw stream or dictionary content
-    #         raw_data = doc.xref_object(xref)
-    #         if isinstance(raw_data, bytes):
-    #             raw_data = raw_data.decode('latin-1', 'ignore')
-    #         elif isinstance(raw_data, str):
-    #             raw_data = raw_data
-    #         else:
-    #             continue
-
-    #         # Search for URL patterns in the raw content
-    #         found_urls = re.findall(url_pattern, raw_data, re.IGNORECASE)
-            
-    #         for url_match in found_urls:
-    #             # Heuristic match logic...
-    #             pass
-
-    #     except Exception:
-    #         continue
-    # -------------------------------------------------------------
-    
+    for link in page.get_links():
+        if "uri" in link:
+            bbox = link["from"]  # [x0, y0, x1, y1]
+            if (bbox[0] >= image_area[0] and bbox[2] <= image_area[2] and
+                bbox[1] >= image_area[1] and bbox[3] <= image_area[3]):
+                links.append({
+                    "content": link["uri"],
+                    "type": "pdf-structural",
+                    "bbox": bbox
+                })
     return links
-    
+
 # --------------------------
 # Routes
 # --------------------------
